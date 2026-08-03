@@ -1,0 +1,52 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/endpoints/get_policy:
+    post:
+      summary: Get Endpoint Policy
+      description: Retrieve the security policy assigned to a single endpoint.
+      operationId: get_endpoint_policy
+      tags:
+        - Endpoints
+      requestBody:
+        description: JSON object containing the endpoint ID under a 'request_data' key.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request_data:
+                  type: object
+                  properties:
+                    endpoint_id:
+                      type: string
+                      description: The endpoint ID to retrieve the assigned policy for. Use get_filtered_endpoints to look up IDs by hostname.
+                  required:
+                    - endpoint_id
+              required:
+                - request_data
+            examples:
+              example_request:
+                summary: Example request
+                value:
+                  request_data:
+                    endpoint_id: "9443757221f34f1199bbf444b31d99e7"
+      responses:
+        '200':
+          description: Successful response containing the endpoint's assigned policy.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object

@@ -1,0 +1,39 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/get_risky_users:
+    post:
+      summary: Get Risky Users
+      description: List the tenant's highest-risk users, ranked by risk score.
+      operationId: get_risky_users
+      tags:
+        - System
+      requestBody:
+        description: Empty JSON object — this endpoint takes no request_data wrapper, unlike most others.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+            examples:
+              example_request:
+                summary: Example request
+                value: {}
+      responses:
+        '200':
+          description: Successful response containing risky users ranked by score.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object

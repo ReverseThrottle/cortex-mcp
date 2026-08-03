@@ -1,0 +1,22 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/healthcheck:
+    get:
+      summary: System Health Check
+      description: Verify the Cortex platform's API is reachable and healthy.
+      operationId: get_system_healthcheck
+      tags:
+        - System
+      responses:
+        '200':
+          description: Successful response indicating the platform is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object

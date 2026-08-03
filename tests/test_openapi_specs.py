@@ -27,6 +27,12 @@ BASELINE_OPERATION_IDS = {
     "get_case_extra_data",
     "get_xql_quota",
     "get_xql_datasets",
+    "get_system_healthcheck",
+    "get_rbac_users",
+    "get_risky_users",
+    "get_risk_score",
+    "get_endpoint_policy",
+    "get_endpoint_profiles",
 }
 
 

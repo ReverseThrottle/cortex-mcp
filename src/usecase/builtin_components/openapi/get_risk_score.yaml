@@ -1,0 +1,52 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/get_risk_score:
+    post:
+      summary: Get Risk Score
+      description: Retrieve the risk score for a single entity (e.g. a user or host) by ID.
+      operationId: get_risk_score
+      tags:
+        - System
+      requestBody:
+        description: JSON object containing the entity ID under a 'request_data' key.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request_data:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      description: The user or host identifier to retrieve a risk score for.
+                  required:
+                    - id
+              required:
+                - request_data
+            examples:
+              example_request:
+                summary: Example request
+                value:
+                  request_data:
+                    id: "user@example.com"
+      responses:
+        '200':
+          description: Successful response containing the entity's risk score.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object

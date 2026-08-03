@@ -1,0 +1,58 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/endpoints/get_profiles:
+    post:
+      summary: Get Endpoint Security Profiles
+      description: List endpoint security profiles (e.g. prevention profiles) by type and/or ID.
+      operationId: get_endpoint_profiles
+      tags:
+        - Endpoints
+      requestBody:
+        description: JSON object containing the profile type and optional profile IDs under a 'request_data' key.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request_data:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      description: Profile type, e.g. "prevention".
+                    profile_ids:
+                      type: array
+                      items:
+                        type: integer
+                      description: Optional list of specific profile IDs to retrieve. Omit to list all profiles of the given type.
+                  required:
+                    - type
+              required:
+                - request_data
+            examples:
+              example_request:
+                summary: Example request
+                value:
+                  request_data:
+                    type: "prevention"
+                    profile_ids: [1]
+      responses:
+        '200':
+          description: Successful response containing the requested security profiles.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object
