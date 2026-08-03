@@ -1,5 +1,6 @@
 import io
 import logging
+from typing import Literal
 
 import httpx
 from httpx import ConnectError, RequestError, TimeoutException
@@ -13,39 +14,70 @@ from entities.exceptions import (
     PAPIResponseError,
     PAPIServerError,
 )
+from pkg.util import get_papi_auth_headers
 
 logger = logging.getLogger(__name__)
 
 
 class PAPIClient(httpx.AsyncClient):
-    def __init__(self, base_url: str, headers: dict[str, str], timeout: int = 30, **kwargs):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        api_key_id: str,
+        key_type: Literal["standard", "advanced"] = "standard",
+        timeout: int = 30,
+        **kwargs,
+    ):
         """
         Initialize PAPIClient as an AsyncClient.
 
+        Auth headers are computed fresh on every outgoing request via an httpx
+        request event hook, rather than baked in once at construction time. This
+        matters for two reasons: "advanced" key auth requires a fresh nonce and
+        timestamp per request (a cached header set would be rejected as a replay
+        or expire), and FastMCP's OpenAPI-generated tools call this client's
+        send() directly rather than going through request() below — an event
+        hook is the one place that reliably runs for every request regardless
+        of caller.
+
         Args:
             base_url (str): Base URL for the PAPI server
-            headers (dict): default headers for PAPI
+            api_key (str): The API key (secret) for authentication
+            api_key_id (str): The API key ID for authentication
+            key_type (str): "standard" or "advanced", matching the key's type in Cortex
             timeout (int): Request timeout in seconds
             **kwargs: Additional arguments passed to httpx.AsyncClient
         """
-        # Set default timeout if not provided in kwargs
+        self._api_key = api_key
+        self._api_key_id = api_key_id
+        self._key_type = key_type
+
         if 'timeout' not in kwargs:
             kwargs['timeout'] = timeout
 
-        super().__init__(base_url=base_url, headers=headers, **kwargs)
+        event_hooks = kwargs.pop("event_hooks", {})
+        event_hooks.setdefault("request", []).append(self._apply_auth_headers)
+        kwargs["event_hooks"] = event_hooks
 
+        super().__init__(base_url=base_url, headers={"X-IS-MCP": "true"}, **kwargs)
+
+    async def _apply_auth_headers(self, request: httpx.Request) -> None:
+        """httpx request event hook: sets fresh auth headers on every outgoing request."""
+        auth_headers = get_papi_auth_headers(self._api_key, self._api_key_id, self._key_type)
+        for key, value in auth_headers.items():
+            request.headers[key] = value
 
     def _get_default_headers(self) -> httpx.Headers:
-        """Get default headers with authentication."""
+        """Get default headers (auth is injected separately via the request event hook)."""
         headers = self.headers
         headers.update({
             'Content-Type': 'application/json',
-            'X-IS-MCP': "true"
         })
         return headers
 
     def _get_download_default_headers(self) -> httpx.Headers:
-        """Get default headers with authentication."""
+        """Get default headers for streaming downloads (auth is injected via the request event hook)."""
         headers = self.headers
         headers.update({
             'Content-Type': 'application/zip',
@@ -111,7 +143,7 @@ class PAPIClient(httpx.AsyncClient):
                 - Programming errors or edge cases
 
         Example:
-            >>> async with PAPIClient("https://api.example.com", {"Authorization": "XXX"}) as client:
+            >>> async with PAPIClient("https://api.example.com", "api-key", "api-key-id") as client:
             ...     try:
             ...         result = await client.request("GET", "/endpoints")
             ...     except PAPIAuthenticationError:

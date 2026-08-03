@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     papi_url_env_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_URL")
     papi_auth_header_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_AUTH_HEADER")
     papi_auth_id_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_AUTH_ID")
+    # "standard" = raw key + ID headers. "advanced" = SHA256(key + nonce + timestamp) per request,
+    # required for Cortex "Advanced" API keys. See pkg/util.get_papi_auth_headers.
+    papi_key_type: Literal["standard", "advanced"] = Field("standard", validation_alias="CORTEX_MCP_PAPI_KEY_TYPE")
 
     max_objects_to_retrieve: int = Field(50, validation_alias="MAX_OBJECTS_TO_RETRIEVE")
 

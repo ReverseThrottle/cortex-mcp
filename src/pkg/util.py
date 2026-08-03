@@ -1,5 +1,10 @@
+import hashlib
 import json
+import secrets
+import string
+import time
 from pathlib import Path
+from typing import Literal
 
 from pkg.openapi.openapi import bundle_specs
 
@@ -119,17 +124,37 @@ def read_file(file_path: str, file_directory: Path) -> str:
     except UnicodeDecodeError as e:
         raise ValueError(f"Unable to decode file {file_path}: {e}") from e
 
-def get_papi_auth_headers(api_key: str, api_key_id: str) -> dict:
+def get_papi_auth_headers(api_key: str, api_key_id: str, key_type: Literal["standard", "advanced"] = "standard") -> dict:
     """
-    Generate authentication headers for Palo Alto Networks API requests.
+    Generate authentication headers for Palo Alto Networks Cortex PAPI requests.
+
+    Cortex API keys come in two types, and each requires a different auth scheme:
+      - "standard": the raw key and its ID are sent directly as headers.
+      - "advanced": the key must never be sent as-is. Each request computes
+        SHA256(api_key + nonce + timestamp) and sends the hash, nonce, and
+        timestamp instead. The nonce/timestamp must be fresh per request —
+        callers must invoke this function again for every outgoing request
+        rather than caching the result.
 
     Args:
-        api_key (str): The API key for authentication.
+        api_key (str): The API key (secret) for authentication.
         api_key_id (str): The API key ID for authentication.
+        key_type (str): "standard" or "advanced", matching the key's type in Cortex.
 
     Returns:
         dict: A dictionary containing the required authentication headers.
     """
+    if key_type == "advanced":
+        nonce = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(64))
+        timestamp = str(int(time.time()) * 1000)
+        auth_key = f"{api_key}{nonce}{timestamp}".encode("utf-8")
+        return {
+            "Authorization": hashlib.sha256(auth_key).hexdigest(),
+            "x-xdr-auth-id": api_key_id,
+            "x-xdr-nonce": nonce,
+            "x-xdr-timestamp": timestamp,
+        }
+
     return {
         "Authorization": api_key,
         "X-XDR-AUTH-ID": api_key_id,
