@@ -1,0 +1,31 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/case/schema/:
+    get:
+      summary: Get Cases Schema
+      description: |-
+        Retrieve the field schema for cases — every field name, its human-readable
+        label, and its data type. Useful for building valid filters for get_cases
+        or understanding what a case object looks like before parsing one.
+      operationId: get_cases_schema
+      tags:
+        - Cases
+      responses:
+        '200':
+          description: Successful response containing the case field schema.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object
