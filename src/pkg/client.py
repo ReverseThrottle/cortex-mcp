@@ -34,6 +34,20 @@ class PAPIClient(httpx.AsyncClient):
 
         super().__init__(base_url=base_url, headers=headers, **kwargs)
 
+        # FastMCP's OpenAPI tool machinery forwards the *inbound* MCP client's HTTP
+        # headers onto outbound tool requests with highest precedence (both the
+        # legacy and experimental parsers do this, for pass-through-auth use cases).
+        # That clobbers our own Authorization/X-XDR-AUTH-ID headers whenever an MCP
+        # client authenticates to this server with `Authorization: Bearer <token>`.
+        # Keep a copy so send() can re-assert the real PAPI credentials right before
+        # the request goes out, regardless of what upstream merged into it.
+        self._papi_headers = dict(headers)
+
+    async def send(self, request: httpx.Request, **kwargs) -> httpx.Response:
+        for key, value in self._papi_headers.items():
+            request.headers[key] = value
+        return await super().send(request, **kwargs)
+
 
     def _get_default_headers(self) -> httpx.Headers:
         """Get default headers with authentication."""
