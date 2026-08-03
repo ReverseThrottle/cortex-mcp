@@ -2,7 +2,8 @@
 Verifies MCP_WRITE_TOOLS_ENABLED / MCP_ISOLATE_ENDPOINT_TOOL_ENABLED actually gate their
 tools. Regression test for a real bug found during this build-out: update_case, isolate_endpoint,
 and unisolate_endpoint were registered unconditionally with no runtime check of their flags at
-all, contradicting the README's "disabled by default" claim.
+all, contradicting the README's "disabled by default" claim. update_issue is covered here too
+since it uses the same require_flag decorator.
 """
 
 import json
@@ -15,6 +16,7 @@ from fastmcp import Client
     "tool_name,args,flag_env",
     [
         ("update_case", {"case_ids": [1], "comment": "test"}, "MCP_WRITE_TOOLS_ENABLED"),
+        ("update_issue", {"issue_ids": ["1"], "comment": "test"}, "MCP_WRITE_TOOLS_ENABLED"),
         ("isolate_endpoint", {"endpoint_ids": ["abc"]}, "MCP_ISOLATE_ENDPOINT_TOOL_ENABLED"),
         ("unisolate_endpoint", {"endpoint_ids": ["abc"]}, "MCP_ISOLATE_ENDPOINT_TOOL_ENABLED"),
     ],
@@ -32,6 +34,7 @@ async def test_tool_refuses_when_flag_disabled(mcp_server, flags, tool_name, arg
     "tool_name,args,flag_env",
     [
         ("update_case", {"case_ids": [1], "comment": "test"}, "MCP_WRITE_TOOLS_ENABLED"),
+        ("update_issue", {"issue_ids": ["1"], "comment": "test"}, "MCP_WRITE_TOOLS_ENABLED"),
         ("isolate_endpoint", {"endpoint_ids": ["abc"]}, "MCP_ISOLATE_ENDPOINT_TOOL_ENABLED"),
         ("unisolate_endpoint", {"endpoint_ids": ["abc"]}, "MCP_ISOLATE_ENDPOINT_TOOL_ENABLED"),
     ],
