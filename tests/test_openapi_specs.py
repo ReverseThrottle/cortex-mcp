@@ -33,6 +33,10 @@ BASELINE_OPERATION_IDS = {
     "get_risk_score",
     "get_endpoint_policy",
     "get_endpoint_profiles",
+    "get_audit_management_logs",
+    "get_audit_agent_reports",
+    "get_rbac_roles",
+    "get_rbac_user_group",
 }
 
 

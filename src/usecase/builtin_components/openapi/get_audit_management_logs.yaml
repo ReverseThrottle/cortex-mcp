@@ -1,0 +1,83 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/audits/management_logs:
+    post:
+      summary: Get Audit Management Log
+      description: Retrieve the tenant's management/audit log — who did what, in the Cortex console or via API.
+      operationId: get_audit_management_logs
+      tags:
+        - System
+      requestBody:
+        description: JSON object containing filters, sorting, and pagination settings under a 'request_data' key.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditLogRequest'
+            examples:
+              example_request:
+                summary: Example request
+                value:
+                  request_data:
+                    filters:
+                      - field: "email"
+                        operator: "in"
+                        value: ["user@example.com"]
+                    sort:
+                      field: "type"
+                      keyword: "asc"
+                    search_from: 0
+                    search_to: 100
+      responses:
+        '200':
+          description: Successful response containing audit log entries.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  schemas:
+    AuditLogRequest:
+      type: object
+      properties:
+        request_data:
+          type: object
+          properties:
+            filters:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  operator:
+                    type: string
+                  value: {}
+            sort:
+              type: object
+              properties:
+                field:
+                  type: string
+                keyword:
+                  type: string
+                  enum: [asc, desc]
+            search_from:
+              type: integer
+              default: 0
+            search_to:
+              type: integer
+              default: 100
+      required:
+        - request_data

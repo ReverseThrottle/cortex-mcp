@@ -1,0 +1,83 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/audits/agents_reports:
+    post:
+      summary: Get Audit Agent Report
+      description: Retrieve audit reports of agent activity (e.g. install/uninstall/content update events) for one or more endpoints.
+      operationId: get_audit_agent_reports
+      tags:
+        - System
+      requestBody:
+        description: JSON object containing filters, sorting, and pagination settings under a 'request_data' key.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditAgentReportRequest'
+            examples:
+              example_request:
+                summary: Example request
+                value:
+                  request_data:
+                    filters:
+                      - field: "endpoint_id"
+                        operator: "in"
+                        value: ["9443757221f34f1199bbf444b31d99e7"]
+                    sort:
+                      field: "type"
+                      keyword: "asc"
+                    search_from: 0
+                    search_to: 100
+      responses:
+        '200':
+          description: Successful response containing agent audit report entries.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  schemas:
+    AuditAgentReportRequest:
+      type: object
+      properties:
+        request_data:
+          type: object
+          properties:
+            filters:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  operator:
+                    type: string
+                  value: {}
+            sort:
+              type: object
+              properties:
+                field:
+                  type: string
+                keyword:
+                  type: string
+                  enum: [asc, desc]
+            search_from:
+              type: integer
+              default: 0
+            search_to:
+              type: integer
+              default: 100
+      required:
+        - request_data

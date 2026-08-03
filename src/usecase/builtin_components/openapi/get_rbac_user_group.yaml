@@ -1,0 +1,52 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/rbac/get_user_group:
+    post:
+      summary: Get RBAC User Groups
+      description: List the tenant's defined user groups, optionally filtered by name.
+      operationId: get_rbac_user_group
+      tags:
+        - System
+      requestBody:
+        description: JSON object containing an optional list of group names under a 'request_data' key. Omit group_names (or pass an empty list) to list all groups.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request_data:
+                  type: object
+                  properties:
+                    group_names:
+                      type: array
+                      items:
+                        type: string
+                      description: Optional list of specific group names to retrieve. Omit or leave empty to list all groups.
+              required:
+                - request_data
+            examples:
+              example_request:
+                summary: Example request
+                value:
+                  request_data:
+                    group_names: []
+      responses:
+        '200':
+          description: Successful response containing the list of user groups.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object
