@@ -17,6 +17,7 @@ from fastmcp import Client
     [
         ("update_case", {"case_ids": [1], "comment": "test"}, "MCP_WRITE_TOOLS_ENABLED"),
         ("update_issue", {"issue_ids": ["1"], "comment": "test"}, "MCP_WRITE_TOOLS_ENABLED"),
+        ("set_user_role", {"user_emails": ["user@example.com"], "role_name": "Viewer"}, "MCP_WRITE_TOOLS_ENABLED"),
         ("isolate_endpoint", {"endpoint_ids": ["abc"]}, "MCP_ISOLATE_ENDPOINT_TOOL_ENABLED"),
         ("unisolate_endpoint", {"endpoint_ids": ["abc"]}, "MCP_ISOLATE_ENDPOINT_TOOL_ENABLED"),
     ],
@@ -35,6 +36,7 @@ async def test_tool_refuses_when_flag_disabled(mcp_server, flags, tool_name, arg
     [
         ("update_case", {"case_ids": [1], "comment": "test"}, "MCP_WRITE_TOOLS_ENABLED"),
         ("update_issue", {"issue_ids": ["1"], "comment": "test"}, "MCP_WRITE_TOOLS_ENABLED"),
+        ("set_user_role", {"user_emails": ["user@example.com"], "role_name": "Viewer"}, "MCP_WRITE_TOOLS_ENABLED"),
         ("isolate_endpoint", {"endpoint_ids": ["abc"]}, "MCP_ISOLATE_ENDPOINT_TOOL_ENABLED"),
         ("unisolate_endpoint", {"endpoint_ids": ["abc"]}, "MCP_ISOLATE_ENDPOINT_TOOL_ENABLED"),
     ],
