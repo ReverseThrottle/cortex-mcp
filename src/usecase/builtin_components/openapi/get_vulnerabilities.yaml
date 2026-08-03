@@ -132,7 +132,7 @@ components:
           description: Use "use_page_token":true in the initial request to paginate the response data.
         next_page_token:
           type: string
-          description: If "use_page_token":true was included in the initial request, the response for that request will include a page token. Use this to pass that page token into the next request to paginate the next set of data.
+          description: Required. The Cortex API rejects the request if this is omitted, even on the first page — pass an empty string "" for the first request. If "use_page_token":true was included in the initial request, the response for that request will include a page token — pass that page token here to paginate the next set of data.
         sort:
           $ref: '#/components/schemas/VulnerabilitySort'
         filters:
@@ -158,6 +158,7 @@ components:
               - $ref: '#/components/schemas/AffectedCpuArchsFilter'
       required:
         - use_page_token
+        - next_page_token
 
     VulnerabilitySort:
       type: object
