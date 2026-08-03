@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastmcp import FastMCP
+from fastmcp.server.auth import StaticTokenVerifier
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -56,22 +57,36 @@ def create_mcp_lifespan(api_key: Optional[str] = None, api_key_id: Optional[str]
 
 
 # Create MCP server with injected dependencies
-def create_mcp_server(api_key: Optional[str] = None, api_key_id: Optional[str] = None) -> FastMCP:
+def create_mcp_server(
+    api_key: Optional[str] = None,
+    api_key_id: Optional[str] = None,
+    auth_token: Optional[str] = None,
+) -> FastMCP:
     """
     Create FastMCP server with injected dependencies.
 
     Args:
         api_key: API key
         api_key_id: API key ID
+        auth_token: Bearer token clients must present to call this server. When unset,
+            the server accepts unauthenticated requests (fine for local stdio use;
+            required for any deployment reachable over the network).
 
     Returns:
         FastMCP: Configured server instance
     """
     lifespan = create_mcp_lifespan(api_key, api_key_id)
 
+    auth = (
+        StaticTokenVerifier(tokens={auth_token: {"client_id": "cortex-mcp-client"}})
+        if auth_token
+        else None
+    )
+
     mcp = FastMCP(
         name="Cortex MCP Server",
         lifespan=lifespan,
+        auth=auth,
     )
 
     @mcp.custom_route("/ping/", methods=["GET"], include_in_schema=False)

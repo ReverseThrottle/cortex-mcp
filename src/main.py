@@ -94,8 +94,15 @@ async def async_main(transport: Transport):
     api_key = config.papi_auth_header_key
     api_key_id = config.papi_auth_id_key
     papi_url = config.papi_url_env_key
+    auth_token = config.mcp_auth_token
 
-    mcp = await initialize_mcp_server(api_key, api_key_id, papi_url)
+    if transport != "stdio" and not auth_token:
+        logger.warning(
+            "MCP_AUTH_TOKEN is not set — this server is reachable over the network "
+            "with no client authentication."
+        )
+
+    mcp = await initialize_mcp_server(api_key, api_key_id, papi_url, auth_token)
 
     # Start server with appropriate transport configuration
     if transport == "stdio":
@@ -110,9 +117,9 @@ async def async_main(transport: Transport):
         )
 
 
-async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str) -> FastMCP:
+async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, auth_token: str = "") -> FastMCP:
     # Create MCP server instance with authentication
-    mcp = create_mcp_server(api_key, api_key_id)
+    mcp = create_mcp_server(api_key, api_key_id, auth_token)
 
     # Discover mcp components from modules
     discover_and_register_modules(mcp)
