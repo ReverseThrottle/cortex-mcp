@@ -15,6 +15,7 @@ from entities.exceptions import (
 from pkg.util import create_response
 from usecase.base_module import BaseModule
 from usecase.fetcher import get_fetcher
+from usecase.write_gate import require_flag
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ _PAPI_ERRORS = (
 )
 
 
+@require_flag("isolate_endpoint_tool_enabled")
 async def isolate_endpoint(
     ctx: Context,
     endpoint_ids: Annotated[list[str], Field(description="List of endpoint IDs to isolate. Use get_filtered_endpoints to look up IDs by hostname first if needed.")],
@@ -73,6 +75,7 @@ async def isolate_endpoint(
         return create_response(data={"error": str(e)}, is_error=True)
 
 
+@require_flag("isolate_endpoint_tool_enabled")
 async def unisolate_endpoint(
     ctx: Context,
     endpoint_ids: Annotated[list[str], Field(description="List of endpoint IDs to unisolate (restore network access). Use get_filtered_endpoints to look up IDs by hostname first if needed.")],

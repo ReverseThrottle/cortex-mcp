@@ -145,11 +145,18 @@ All configuration is via environment variables (or a `.env` file in the project 
 
 ### Optional — feature flags
 
+Flags are tiered by blast radius, not one blanket switch — enabling low-risk writes does not enable script execution or file quarantine.
+
 | Variable | Default | Description |
 |---|---|---|
-| `MCP_WRITE_TOOLS_ENABLED` | `false` | Enable write tools (`update_case`) |
+| `MCP_WRITE_TOOLS_ENABLED` | `false` | Enable low/moderate-risk write tools (`update_case`, detection-content CRUD, compliance authoring) |
 | `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED` | `false` | Enable `isolate_endpoint` / `unisolate_endpoint` |
-| `MCP_ELICITATION_ENABLED` | `false` | Enable MCP elicitation support |
+| `MCP_ENDPOINT_ADMIN_TOOLS_ENABLED` | `false` | Enable endpoint fleet administration (delete endpoints, agent upgrades, tags, distributions, legacy exception / prevention profile CRUD) |
+| `MCP_ENDPOINT_ACTION_TOOLS_ENABLED` | `false` | Enable endpoint response actions (scan, cancel scan, forensics triage, retrieve file) |
+| `MCP_FILE_ACTION_TOOLS_ENABLED` | `false` | Enable file actions (quarantine, restore, block-list, allow-list) |
+| `MCP_SCRIPT_EXEC_TOOLS_ENABLED` | `false` | Enable remote script execution on endpoints — highest blast radius in the API |
+| `MCP_VULN_SCAN_TOOLS_ENABLED` | `false` | Enable vulnerability/network scan triggers (vuln policy scans, NetScan) |
+| `MCP_ELICITATION_ENABLED` | `false` | Enable MCP elicitation support, used to confirm high-risk actions such as script execution |
 
 ### Optional — limits & logging
 
@@ -210,15 +217,43 @@ Most MCP clients accept the same stdio command pattern. Point the command at the
 
 ### HTTP transport (remote server)
 
-Set `MCP_TRANSPORT=streamable-http` in your `.env`, then run the server. The MCP endpoint will be available at:
+The server supports the modern MCP **streamable-http** transport (the FastMCP `Transport` value is validated at startup — `stdio` or `streamable-http`; anything else fails fast with a clear config error instead of a deep runtime crash). Legacy `sse` is not used here.
+
+Enable it either via `.env`:
+
+```bash
+MCP_TRANSPORT=streamable-http
+MCP_HOST=0.0.0.0
+MCP_PORT=8080
+MCP_PATH=/api/v1/stream/mcp
+```
+
+or directly via the CLI, without touching `.env`:
+
+```bash
+python src/cli.py start \
+  --api_key_id 12345 \
+  --api_key_secret "your-secret" \
+  --server-url "https://api-acme.xdr.us.paloaltonetworks.com" \
+  --transport streamable-http
+```
+
+The MCP endpoint is then available at:
 
 ```
 http://<host>:<port>/api/v1/stream/mcp
 ```
 
-Configure your AI client to connect to that URL using the HTTP MCP transport.
+Configure your AI client to connect to that URL using the HTTP MCP transport. A health-check endpoint is also available at `GET /ping/`.
 
-A health-check endpoint is also available at `GET /ping/`.
+**Verifying it end-to-end** with the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
+
+```bash
+npx @modelcontextprotocol/inspector
+# In the Inspector UI: Transport = "Streamable HTTP", URL = http://localhost:8080/api/v1/stream/mcp
+```
+
+You should see the full tool list load and be able to call a read tool (e.g. `get_tenant_info`) and get a real response back from your tenant.
 
 ---
 
@@ -292,10 +327,11 @@ python src/cli.py start \
   --api_key_id 12345 \
   --api_key_secret "your-secret" \
   --server-url "https://api-acme.xdr.us.paloaltonetworks.com" \
-  --log-level INFO
+  --log-level INFO \
+  --transport stdio
 ```
 
-All flags fall back to the corresponding environment variables if not provided.
+`--transport` accepts `stdio` (default) or `streamable-http`. All flags fall back to the corresponding environment variables if not provided.
 
 ### `update`
 

@@ -15,6 +15,7 @@ from entities.exceptions import (
 from pkg.util import create_response
 from usecase.base_module import BaseModule
 from usecase.fetcher import get_fetcher
+from usecase.write_gate import require_flag
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ _VALID_STATUSES = {"new", "under_investigation", "resolved", "closed"}
 _VALID_SEVERITIES = {"low", "medium", "high", "critical"}
 
 
+@require_flag("write_tools_enabled")
 async def update_case(
     ctx: Context,
     case_ids: Annotated[list[int], Field(description="List of case IDs to update. All supplied cases receive the same update.")],

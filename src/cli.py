@@ -70,6 +70,12 @@ def setup_commands(subparsers: argparse._SubParsersAction):
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         default="DEBUG",
     )
+    start_parser.add_argument(
+        "--transport",
+        help="MCP transport to use (default: environment variable MCP_TRANSPORT, or 'stdio').",
+        choices=["stdio", "streamable-http"],
+        default=None,
+    )
 
     start_parser.set_defaults(func=start_server)
 
@@ -119,6 +125,9 @@ def setup_env(args: argparse.Namespace):
 
     if hasattr(args, "log_level") and args.log_level:
         os.environ["LOG_LEVEL"] = args.log_level
+
+    if hasattr(args, "transport") and args.transport:
+        os.environ["MCP_TRANSPORT"] = args.transport
 
     if hasattr(args, "folder") and args.folder:
         os.environ["CORTEX_MCP_UPDATE_FOLDER"] = args.folder
