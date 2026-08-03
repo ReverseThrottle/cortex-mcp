@@ -25,6 +25,8 @@ BASELINE_OPERATION_IDS = {
     # Added during the API gap build-out — verified against a live tenant, see commit history.
     "get_cases_schema",
     "get_case_extra_data",
+    "get_xql_quota",
+    "get_xql_datasets",
 }
 
 

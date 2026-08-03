@@ -1,0 +1,47 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/xql/get_quota:
+    post:
+      summary: Get XQL Query Quota
+      description: |-
+        Retrieve the tenant's remaining XQL query quota (daily and yearly), and how much
+        has been consumed. Useful before running large or frequent queries.
+      operationId: get_xql_quota
+      tags:
+        - XQL
+      requestBody:
+        description: Empty request_data object.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request_data:
+                  type: object
+              required:
+                - request_data
+            examples:
+              example_request:
+                summary: Example request
+                value:
+                  request_data: {}
+      responses:
+        '200':
+          description: Successful response containing quota details.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object

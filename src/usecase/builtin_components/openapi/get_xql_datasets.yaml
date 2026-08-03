@@ -1,0 +1,48 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/xql/get_datasets:
+    post:
+      summary: Get XQL Datasets
+      description: |-
+        List datasets available to query with XQL, including custom lookup datasets
+        created via add_dataset. Note this endpoint wraps its (empty) body under a
+        "request" key rather than the "request_data" key most other Cortex endpoints use.
+      operationId: get_xql_datasets
+      tags:
+        - XQL
+      requestBody:
+        description: Empty request object.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request:
+                  type: object
+              required:
+                - request
+            examples:
+              example_request:
+                summary: Example request
+                value:
+                  request: {}
+      responses:
+        '200':
+          description: Successful response containing the list of datasets.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object
