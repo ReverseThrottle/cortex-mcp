@@ -1,0 +1,74 @@
+openapi: 3.0.0
+paths:
+  /public_api/v1/incidents/get_incident_extra_data:
+    post:
+      summary: Get Case Extra Data
+      description: |-
+        Retrieve extended detail for a single case beyond what get_cases returns in a
+        search listing — including its related alerts, up to alerts_limit. This hits the
+        legacy "incidents" API path; incident_id is the same identifier as a case's case_id
+        (pass it as a string).
+      operationId: get_case_extra_data
+      tags:
+        - Cases
+      requestBody:
+        description: JSON object containing the case (incident) ID and an optional alert limit, under a 'request_data' key.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseExtraDataRequest'
+            examples:
+              example_request:
+                summary: Example request
+                value:
+                  request_data:
+                    incident_id: "277"
+                    alerts_limit: 1000
+      responses:
+        '200':
+          description: Successful response containing extended case detail and related alerts.
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized. The API key is missing or invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: Forbidden. The API key does not have the required permissions.
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Not Found. No case exists with the specified incident_id.
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  schemas:
+    CaseExtraDataRequest:
+      type: object
+      properties:
+        request_data:
+          $ref: '#/components/schemas/CaseExtraDataRequestPayload'
+      required:
+        - request_data
+
+    CaseExtraDataRequestPayload:
+      type: object
+      properties:
+        incident_id:
+          type: string
+          description: The case/incident ID to retrieve extra data for.
+        alerts_limit:
+          type: integer
+          default: 1000
+          description: Maximum number of related alerts to include in the response.
+      required:
+        - incident_id

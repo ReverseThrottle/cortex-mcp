@@ -24,6 +24,7 @@ BASELINE_OPERATION_IDS = {
     "get_vulnerabilities",
     # Added during the API gap build-out — verified against a live tenant, see commit history.
     "get_cases_schema",
+    "get_case_extra_data",
 }
 
 
