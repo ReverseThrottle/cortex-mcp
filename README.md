@@ -142,6 +142,7 @@ All configuration is via environment variables (or a `.env` file in the project 
 | `MCP_HOST` | `0.0.0.0` | Bind host (HTTP mode only) |
 | `MCP_PORT` | `8080` | Listen port (HTTP mode only) |
 | `MCP_PATH` | `/api/v1/stream/mcp` | URL path (HTTP mode only) |
+| `MCP_AUTH_TOKEN` | unset | Bearer token required from clients in HTTP mode (`Authorization: Bearer <token>`). Unauthenticated when unset — only safe for local/stdio use. |
 
 ### Optional — feature flags
 
@@ -218,7 +219,10 @@ http://<host>:<port>/api/v1/stream/mcp
 
 Configure your AI client to connect to that URL using the HTTP MCP transport.
 
-A health-check endpoint is also available at `GET /ping/`.
+If `MCP_AUTH_TOKEN` is set, clients must send `Authorization: Bearer <token>` on every
+request, or they get `401`. Set this for any deployment reachable over a network.
+
+A health-check endpoint is also available at `GET /ping/` (unauthenticated).
 
 ---
 

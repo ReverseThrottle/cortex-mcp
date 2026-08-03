@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     mcp_host: str = Field("0.0.0.0", validation_alias="MCP_HOST")
     mcp_port: int = Field(8080, validation_alias="MCP_PORT")
     mcp_path: str = Field("/api/v1/stream/mcp", validation_alias="MCP_PATH")
+    mcp_auth_token: str = Field("", validation_alias="MCP_AUTH_TOKEN")
     elicitation_enabled: bool = Field(False, validation_alias="MCP_ELICITATION_ENABLED")
     write_tools_enabled: bool = Field(False, validation_alias="MCP_WRITE_TOOLS_ENABLED")
     isolate_endpoint_tool_enabled: bool = Field(False, validation_alias="MCP_ISOLATE_ENDPOINT_TOOL_ENABLED")
