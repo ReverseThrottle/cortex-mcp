@@ -96,14 +96,14 @@ async def run_xql_query(
         results_payload = {
             "request_data": {
                 "query_id": execution_id,
-                "pending_duration": _POLL_INTERVAL_SECONDS,
+                "pending_flag": True,
                 "limit": limit,
                 "format": "json",
             }
         }
 
         for attempt in range(1, _MAX_POLL_ATTEMPTS + 1):
-            results_response = await fetcher.send_request("xql/get_xql_query_results/", data=results_payload)
+            results_response = await fetcher.send_request("xql/get_query_results", data=results_payload)
             reply = results_response.get("reply", {})
             status = reply.get("status")
 
