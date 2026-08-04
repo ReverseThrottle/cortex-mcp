@@ -134,6 +134,12 @@ All configuration is via environment variables (or a `.env` file in the project 
 | `CORTEX_MCP_PAPI_AUTH_HEADER` | Your API key secret |
 | `CORTEX_MCP_PAPI_AUTH_ID` | Numeric ID of the API key |
 
+### Optional — auth
+
+| Variable | Default | Description |
+|---|---|---|
+| `CORTEX_MCP_PAPI_KEY_TYPE` | `standard` | `standard` (raw key + ID headers) or `advanced` (per-request `SHA256(key+nonce+timestamp)`). Must match the key type shown in Cortex under **Settings → Configurations → API Keys** — using the wrong type fails every request with 401. |
+
 ### Optional — transport
 
 | Variable | Default | Description |
@@ -266,6 +272,8 @@ Tools are grouped by domain. Write tools and the endpoint isolation tools are **
 | Tool | Description |
 |---|---|
 | `get_cases` | Search and filter cases / incidents with pagination and sorting |
+| `get_cases_schema` | Retrieve the field schema for cases (valid fields, types, filterable columns) |
+| `get_case_extra_data` | Retrieve full extra data (alerts, network artifacts, file artifacts) for a case |
 | `update_case` | Add a comment, change status, reassign, or update severity (**write, opt-in**) |
 
 ### Issues / Alerts
@@ -273,12 +281,15 @@ Tools are grouped by domain. Write tools and the endpoint isolation tools are **
 | Tool | Description |
 |---|---|
 | `get_issues` | Search and filter security issues / alerts with pagination |
+| `update_issue` | Add a comment or update status/severity on one or more issues (**write, opt-in**) |
 
 ### Endpoints
 
 | Tool | Description |
 |---|---|
 | `get_filtered_endpoints` | List endpoints matching host, OS, or agent status filters |
+| `get_endpoint_policy` | Retrieve the security policy assigned to an endpoint |
+| `get_endpoint_profiles` | Retrieve endpoint security profiles |
 | `isolate_endpoint` | Block all network traffic on one or more endpoints (**opt-in**) |
 | `unisolate_endpoint` | Restore network access to isolated endpoints (**opt-in**) |
 
@@ -300,6 +311,22 @@ Tools are grouped by domain. Write tools and the endpoint isolation tools are **
 | Tool | Description |
 |---|---|
 | `run_xql_query` | Execute an XQL query; automatically polls until complete and returns results |
+| `get_xql_quota` | Retrieve remaining XQL query quota for the tenant |
+| `get_xql_datasets` | List available XQL datasets |
+
+### System, RBAC & Audit
+
+| Tool | Description |
+|---|---|
+| `get_system_healthcheck` | Retrieve platform health/status |
+| `get_rbac_users` | List tenant users |
+| `get_rbac_roles` | List defined RBAC roles |
+| `get_rbac_user_group` | List defined user groups |
+| `set_user_role` | Assign a role to one or more users (**write, opt-in — not yet live-validated, see [ROADMAP.md](ROADMAP.md)**) |
+| `get_risky_users` | List users flagged by identity-threat risk scoring (requires identity-threat license) |
+| `get_risk_score` | Retrieve a specific entity's risk score (requires identity-threat license) |
+| `get_audit_management_logs` | Retrieve management/audit trail logs |
+| `get_audit_agent_reports` | Retrieve agent install/status audit reports |
 
 ### Assessment & Tenant
 
@@ -307,6 +334,8 @@ Tools are grouped by domain. Write tools and the endpoint isolation tools are **
 |---|---|
 | `get_assessment_profile_results` | Retrieve assessment profile results |
 | `get_tenant_info` | Retrieve tenant metadata |
+
+See [ROADMAP.md](ROADMAP.md) for the domains and operations not yet wrapped (Detection & Automation content, Endpoint fleet administration, Response Actions / script execution, Vulnerability scan triggers, and the rest of Cases/Issues/Assets/XQL/Compliance/System).
 
 ---
 
@@ -328,10 +357,11 @@ python src/cli.py start \
   --api_key_secret "your-secret" \
   --server-url "https://api-acme.xdr.us.paloaltonetworks.com" \
   --log-level INFO \
-  --transport stdio
+  --transport stdio \
+  --key-type standard
 ```
 
-`--transport` accepts `stdio` (default) or `streamable-http`. All flags fall back to the corresponding environment variables if not provided.
+`--transport` accepts `stdio` (default) or `streamable-http`. `--key-type` accepts `standard` (default) or `advanced` — must match your API key's type in Cortex, see [Configuration](#configuration). All flags fall back to the corresponding environment variables if not provided.
 
 ### `update`
 
