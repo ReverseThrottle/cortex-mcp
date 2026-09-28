@@ -94,7 +94,7 @@ def _load_base_module_classes(python_file: Path) -> list[type[BaseModule]]:
     Raises:
         ImportError: If the module cannot be imported
     """
-    module_classes = []
+    module_classes: list[type[BaseModule]] = []
 
     try:
         # Create a module spec from the file

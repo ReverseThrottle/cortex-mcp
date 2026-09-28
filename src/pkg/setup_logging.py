@@ -1,11 +1,14 @@
 # fmt: off
 import logging
 import sys
+from typing import Protocol
 
-from pydantic_settings import BaseSettings
+
+class _LogConfig(Protocol):
+    log_level: str
 
 
-def setup_logging(config: BaseSettings):
+def setup_logging(config: _LogConfig):
     """
     Configure logging for the application with a consistent format and handler.
 

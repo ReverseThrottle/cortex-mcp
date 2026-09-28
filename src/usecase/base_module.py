@@ -59,7 +59,7 @@ class BaseModule(ABC):
         """
         pass
 
-    def _add_tool(self, fn: Callable, description: str = None):
+    def _add_tool(self, fn: Callable, description: str | None = None):
         """
         Add a tool to the MCP instance.
 

@@ -216,4 +216,7 @@ def bundle_openapi_files(*specs_dirs: Path) -> dict:
     if not str(template_file).startswith(str(OPENAPI_DIR.resolve())):
         raise ValueError("Invalid file path: path traversal detected")
 
-    return bundle_specs(template_file, *specs_dirs)
+    spec = bundle_specs(template_file, *specs_dirs)
+    if spec is None:
+        raise RuntimeError("Failed to bundle OpenAPI specifications")
+    return spec

@@ -82,7 +82,7 @@ class PAPIClient(httpx.AsyncClient):
         )
         return headers
 
-    async def request(
+    async def request(  # type: ignore[override]
         self,
         method: str,
         url: str,
@@ -236,7 +236,7 @@ class PAPIClient(httpx.AsyncClient):
             logger.error(err_msg)
             raise PAPIResponseError(err_msg) from e
 
-    async def stream(
+    async def stream(  # type: ignore[override]
         self,
         method: str,
         url: str,
@@ -249,7 +249,7 @@ class PAPIClient(httpx.AsyncClient):
         headers=None,
         cookies=None,
         timeout=None,
-    ) -> io.BytesIO | None:
+    ) -> io.BytesIO:
         """
         Asynchronously downloads a file from a URL using httpx streaming
         and returns it as an in-memory bytes buffer.

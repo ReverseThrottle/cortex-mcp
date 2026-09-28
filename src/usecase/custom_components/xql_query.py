@@ -96,10 +96,12 @@ async def run_xql_query(
         start_response = await fetcher.send_request("xql/start_xql_query/", data=start_payload)
         # The API returns {"reply": "<execution_id>"} — reply is the ID string directly
         reply = start_response.get("reply")
+        execution_id: str | None
         if isinstance(reply, str):
             execution_id = reply
         elif isinstance(reply, dict):
-            execution_id = reply.get("execution_id")
+            nested_id = reply.get("execution_id")
+            execution_id = nested_id if isinstance(nested_id, str) else None
         else:
             execution_id = None
         if not execution_id:

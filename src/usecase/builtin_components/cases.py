@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 from fastmcp import Context, FastMCP
 from pydantic import Field
@@ -78,7 +78,7 @@ async def get_cases(
         JSON response containing case data.
     """
 
-    payload = {
+    payload: dict[str, Any] = {
         "request_data": {
             "search_from": search_from,
             "search_to": search_to,
