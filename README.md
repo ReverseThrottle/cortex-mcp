@@ -150,7 +150,7 @@ All configuration is via environment variables (or a `.env` file in the project 
 |---|---|---|
 | `MCP_WRITE_TOOLS_ENABLED` | `false` | When `true`, register tools that change tenant state. Read-only tools are always registered. Each mutating tool description states the side effect. |
 | `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED` | `false` | When `true`, register `isolate_endpoint` and `unisolate_endpoint`. |
-| `MCP_ELICITATION_ENABLED` | `false` | Enable MCP elicitation support |
+| `MCP_ELICITATION_ENABLED` | `false` | When `true`, a mutating tool asks for confirmation through MCP elicitation before it runs. When `false`, registered tools run without that prompt. Write and isolate flags still control registration. |
 
 ### Optional — limits & logging
 

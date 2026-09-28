@@ -223,6 +223,23 @@ def test_catalog_schemas_match_the_documented_calls(bundled_spec):
     ]["schema"]["properties"]["request_data"]["properties"]
     assert {"filters", "search_from", "search_to"} <= set(endpoints)
 
+    def filter_value(path: str) -> dict:
+        return _operation(bundled_spec, path)["requestBody"]["content"]["application/json"]["schema"]["properties"][
+            "request_data"
+        ]["properties"]["filters"]["items"]["properties"]["value"]
+
+    for path in ("/public_api/v1/widgets/get", "/public_api/v1/assets/get_business_units"):
+        value = filter_value(path)
+        assert value.get("type") != "string"
+        assert any(branch.get("type") == "array" for branch in value["anyOf"])
+    for path in (
+        "/public_api/v1/legacy_exceptions/fetch",
+        "/public_api/v1/disable_injection_prevention_rules/fetch",
+    ):
+        value = filter_value(path)
+        assert value.get("type") != "string"
+        assert any(branch.get("type") in {"number", "integer"} for branch in value["anyOf"])
+
 
 def test_existing_helpers_are_not_duplicated_in_the_catalog(bundled_spec):
     present = set()

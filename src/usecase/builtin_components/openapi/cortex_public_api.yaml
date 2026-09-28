@@ -25999,9 +25999,19 @@
                               "description": "The comparison operator. Currently, **all** the fields only support `eq`condition."
                             },
                             "value": {
-                              "type": "string",
                               "description": "The value to compare against. Type should match the field type.\nCan be a string or number depending on the operator.\n**Examples:**\n* If the `field` is `status`, the `value` can be `ENABLED` or `DISABLED`\n* If the `field` is `platform`, the `value` can be a string such as `Windows`, `macOS`, or `Linux`                \n",
-                              "nullable": true
+                              "nullable": true,
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "integer"
+                                }
+                              ]
                             }
                           }
                         }
@@ -30298,8 +30308,18 @@
                               ]
                             },
                             "value": {
-                              "type": "string",
-                              "description": "Value that this filter must match. The contents of this field will differ depending on the widget field that you specified for this filter:\r\n- `title`, `created_by`: String or list of strings."
+                              "description": "Value that this filter must match. The contents of this field will differ depending on the widget field that you specified for this filter:\r\n- `title`, `created_by`: String or list of strings.",
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              ]
                             }
                           }
                         }
@@ -31604,8 +31624,18 @@
                               "default": "eq"
                             },
                             "value": {
-                              "type": "string",
-                              "description": "The value to compare against. Type should match the field type.\nCan be a string or number depending on the operator.\n**Examples:**\n* If the `field` is `status`, the `value` can be `active`, `disabled`, or `expired`\n* If the `field` is `platform`, the `value` can be a string such as `windows`, `macos`, or `linux`                \n"
+                              "description": "The value to compare against. Type should match the field type.\nCan be a string or number depending on the operator.\n**Examples:**\n* If the `field` is `status`, the `value` can be `active`, `disabled`, or `expired`\n* If the `field` is `platform`, the `value` can be a string such as `windows`, `macos`, or `linux`                \n",
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "integer"
+                                }
+                              ]
                             }
                           }
                         }
@@ -62724,8 +62754,18 @@
                               "description": "Identifies the comparison operator you want to use for this filter. All operators listed can be used with all filter fields."
                             },
                             "value": {
-                              "type": "string",
-                              "description": "Value depends on the filter field used.\r\n- **business_unit_id**: string\r\n- **business_unit_name**: string\r\n- **parent_id**: string"
+                              "description": "Value depends on the filter field used. Send a string, or an array of strings when the operator is `in`.\r\n- **business_unit_id**: string\r\n- **business_unit_name**: string\r\n- **parent_id**: string",
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              ]
                             }
                           }
                         }
