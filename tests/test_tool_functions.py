@@ -122,8 +122,22 @@ async def test_update_case_validates_before_posting(monkeypatch):
     assert missing["success"] == "false"
     assert "At least one" in missing["error"]
 
+    invalid_severity = _loaded(await update_case(None, [1], severity="urgent"))
+    assert invalid_severity["success"] == "false"
+    assert "Invalid severity" in invalid_severity["error"]
+    assert idle.calls == []
+
     fetcher = _install(monkeypatch, case_actions_module, RecordingFetcher({"reply": {"updated": True}}))
-    updated = _loaded(await update_case(None, [4, 5], comment="note", status="under_investigation", severity="high"))
+    updated = _loaded(
+        await update_case(
+            None,
+            [4, 5],
+            comment="note",
+            status="under_investigation",
+            severity="high",
+            assigned_user_mail="analyst@example.com",
+        )
+    )
     assert updated["success"] == "true"
     request_data = fetcher.calls[0][1]["data"]["request_data"]
     assert fetcher.calls[0][0] == "case/update/"
@@ -132,6 +146,7 @@ async def test_update_case_validates_before_posting(monkeypatch):
         "comment": "note",
         "status": "under_investigation",
         "severity": "high",
+        "assigned_user_mail": "analyst@example.com",
     }
 
     _install(monkeypatch, case_actions_module, RecordingFetcher(PAPIAuthenticationError("denied")))
@@ -153,8 +168,10 @@ async def test_isolate_and_unisolate_post_endpoint_filters(monkeypatch):
     restore = _install(monkeypatch, endpoint_actions_module, RecordingFetcher({"reply": "restored"}))
     restored = _loaded(await unisolate_endpoint(None, ["ep-1"]))
     assert restored["success"] == "true"
-    assert "comment" not in restore.calls[0][1]["data"]["request_data"]
+    restored_data = restore.calls[0][1]["data"]["request_data"]
     assert restore.calls[0][0] == "endpoints/unisolate/"
+    assert restored_data["filters"] == [{"field": "endpoint_id_list", "operator": "in", "value": ["ep-1"]}]
+    assert "comment" not in restored_data
 
     _install(monkeypatch, endpoint_actions_module, RecordingFetcher(PAPIConnectionError("offline")))
     error = _loaded(await isolate_endpoint(None, ["ep-1"]))
@@ -186,7 +203,10 @@ async def test_script_and_playbook_inserts_zip_text(monkeypatch):
     assert _loaded(await insert_playbook(None, "name: play\n"))["success"] == "true"
     path, kwargs = playbook.calls[0]
     assert path == "/public_api/v1/playbooks/insert"
-    with zipfile.ZipFile(BytesIO(kwargs["files"]["file"][1])) as archive:
+    name, payload, mime = kwargs["files"]["file"]
+    assert name == "playbook.yml.zip"
+    assert mime == "application/zip"
+    with zipfile.ZipFile(BytesIO(payload)) as archive:
         assert archive.read("playbook.yml") == b"name: play\n"
 
     _install(monkeypatch, uploads_module, RecordingFetcher(PAPIAuthenticationError("denied")))
@@ -277,6 +297,12 @@ async def test_run_xql_query_covers_failure_pending_and_missing_id(monkeypatch):
     assert error["success"] == "false"
     assert "UNKNOWN" in error["error"]
 
+    papi_error = _install(monkeypatch, xql_module, RecordingFetcher(PAPIConnectionError("offline")))
+    error = _loaded(await run_xql_query(None, "dataset=xdr_data | limit 1"))
+    assert error["success"] == "false"
+    assert "offline" in error["error"]
+    assert len(papi_error.calls) == 1
+
 
 @pytest.mark.asyncio
 async def test_xsoar_yaml_task_and_credentials_post_their_bodies(monkeypatch):
@@ -290,18 +316,23 @@ async def test_xsoar_yaml_task_and_credentials_post_their_bodies(monkeypatch):
     assert saved["reply"] == "saved"
     path, kwargs = yaml_fetcher.calls[0]
     assert path == "/xsoar/public/v1/playbook/save/yaml"
+    assert kwargs["omit_papi_prefix"] is True
     assert kwargs["files"]["file"][0] == "play.yml"
     assert kwargs["files"]["file"][1] == b"name: play\n"
+    assert kwargs["files"]["file"][2] == "application/yaml"
 
+    idle_task = _install(monkeypatch, xsoar_module, RecordingFetcher())
     empty_task = _loaded(await post_inv_playbook_task_complete(None, " ", "comment", "task", "input"))
     assert empty_task["success"] == "false"
-    assert "empty" in empty_task["error"]
+    assert empty_task["error"] == "Investigation ID is empty."
+    assert idle_task.calls == []
 
     task = _install(monkeypatch, xsoar_module, RecordingFetcher({"reply": "done"}))
     completed = _loaded(await post_inv_playbook_task_complete(None, "inv-1", "note", "task-1", "yes"))
     assert completed["success"] == "true"
     files = task.calls[0][1]["files"]
     assert task.calls[0][0] == "/xsoar/public/v1/inv-playbook/task/complete"
+    assert task.calls[0][1]["omit_papi_prefix"] is True
     assert files["investigationId"] == (None, "inv-1")
     assert files["fileComment"] == (None, "note")
     assert files["taskId"] == (None, "task-1")

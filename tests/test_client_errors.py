@@ -95,6 +95,16 @@ async def test_stream_connection_failure_is_a_single_attempt():
 
 
 @pytest.mark.asyncio
+async def test_stream_timeout_is_a_single_attempt():
+    handler, state = _counting(httpx.ReadTimeout("slow"))
+    client = _client(handler)
+    with pytest.raises(PAPIConnectionError, match="Request timeout"):
+        await client.stream("POST", "/public_api/v1/mcp/download/")
+    await client.aclose()
+    assert state["calls"] == 1
+
+
+@pytest.mark.asyncio
 async def test_raw_and_stream_success_return_bytes():
     payload = b"\x1f\x8braw"
     client = _client(lambda request: httpx.Response(200, content=payload))
