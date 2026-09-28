@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     papi_url_env_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_URL")
     papi_auth_header_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_AUTH_HEADER")
     papi_auth_id_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_AUTH_ID")
+    broker_url: str = Field("", validation_alias="CORTEX_MCP_BROKER_URL")
+    broker_factory_password: str = Field("", validation_alias="CORTEX_MCP_BROKER_FACTORY_PASSWORD")
 
     max_objects_to_retrieve: int = Field(50, validation_alias="MAX_OBJECTS_TO_RETRIEVE")
 
@@ -44,11 +46,13 @@ class Settings(BaseSettings):
 # Global config instance
 config = Settings()
 
+
 def reload_config():
     """Reload the global config instance"""
     global config
     config = Settings()
     return config
+
 
 def get_config():
     """Get the current config instance"""

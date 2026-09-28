@@ -148,7 +148,7 @@ All configuration is via environment variables (or a `.env` file in the project 
 
 | Variable | Default | Description |
 |---|---|---|
-| `MCP_WRITE_TOOLS_ENABLED` | `false` | When `true`, register tools that change tenant state. Read-only tools are always registered. Each mutating tool description states the side effect. |
+| `MCP_WRITE_TOOLS_ENABLED` | `false` | When `true`, register tools that change tenant or Broker VM appliance state. Read-only tools are always registered. Each mutating tool description states the side effect. |
 | `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED` | `false` | When `true`, register `isolate_endpoint` and `unisolate_endpoint`. |
 | `MCP_ELICITATION_ENABLED` | `false` | When `true`, a mutating tool asks for confirmation through MCP elicitation before it runs. When `false`, registered tools run without that prompt. Write and isolate flags still control registration. |
 
@@ -160,6 +160,17 @@ All configuration is via environment variables (or a `.env` file in the project 
 | `LOG_ENABLE_UVICORN_ACCESS_LOGS` | `true` | Toggle uvicorn HTTP access logs |
 | `MAX_OBJECTS_TO_RETRIEVE` | `50` | Default page size for list operations |
 | `CORTEX_MCP_RESPONSE_ERROR_MAX_SIZE` | `1000` | Max characters of error detail returned to the LLM |
+
+### Optional — on-appliance Broker VM
+
+These settings stay on the server. They are not tool parameters, and the MCP bearer is not sent to the broker. Leave both unset unless you use the 10 appliance tools. Those tools register only when `MCP_WRITE_TOOLS_ENABLED=true`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `CORTEX_MCP_BROKER_URL` | unset | HTTPS address of the Broker VM. A bare hostname is prefixed with `https://`. |
+| `CORTEX_MCP_BROKER_FACTORY_PASSWORD` | unset | Factory or current admin password. The server exchanges it for a 10-minute bearer at `POST /public_api/v1/auth/token` and uses that bearer for the other appliance calls. |
+
+`post_auth_reset_initial_password` sends this password as `current_password`. After it succeeds, this process uses the new password for later broker logins. Set the environment variable to that new password before the next restart.
 
 ---
 
@@ -232,7 +243,7 @@ A health-check endpoint is also available at `GET /ping/` (unauthenticated).
 
 ## Available tools
 
-The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpanse, AgentiX, and XSOAR 8) plus the helpers below. Read-only tools are always registered. Mutating tools are registered only when `MCP_WRITE_TOOLS_ENABLED=true`. `isolate_endpoint` and `unisolate_endpoint` are registered only when `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED=true`. Every tool description states whether the call changes tenant state, including when writes are enabled.
+The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpanse, AgentiX, and XSOAR 8), the on-appliance Broker VM API, and the helpers below. Read-only tools are always registered. Mutating tools, including the 10 Broker VM appliance tools, are registered only when `MCP_WRITE_TOOLS_ENABLED=true`. `isolate_endpoint` and `unisolate_endpoint` are registered only when `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED=true`. Every tool description states whether the call changes state, including when writes are enabled. When `MCP_ELICITATION_ENABLED=true`, those mutating tools ask for confirmation before they run.
 
 ### Helpers
 
@@ -253,9 +264,26 @@ The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpans
 | `insert_script` | Upload a script YAML document. The server zips it for POST /public_api/v1/scripts/insert. Changes tenant state. |
 | `insert_playbook` | Upload a playbook YAML document. The server zips it for POST /public_api/v1/playbooks/insert. Changes tenant state. |
 
+### Broker VM on the appliance
+
+These 10 tools call the broker appliance, not `/public_api/v1/brokers/` on the tenant. The server logs in with `CORTEX_MCP_BROKER_FACTORY_PASSWORD` and keeps the short-lived bearer. They register only when `MCP_WRITE_TOOLS_ENABLED=true`.
+
+| Tool | Description |
+|---|---|
+| `post_auth_reset_initial_password` | Replace the factory admin password. The server supplies `current_password`. |
+| `post_auth_token` | Exchange the server password for a 10-minute bearer. The token is not returned. |
+| `post_logs` | Download the on-appliance log bundle. |
+| `post_network_interface` | Configure or disable a physical interface. |
+| `post_network_internal_subnet` | Set the Docker parent subnet. Restarts Docker. |
+| `post_network_proxy` | Configure the outbound proxy. |
+| `post_network_ntp` | Replace the NTP server list. |
+| `post_network_ssl_certificate` | Install the HTTPS serving certificate. |
+| `post_network_trusted_ca` | Install a trusted CA bundle. |
+| `post_register` | Activate the broker with a tenant registration token. |
+
 ### Public API catalog (506 additional tools)
 
-506 tools come from the public API reference, in addition to the helpers above. The list names every tool (520) registered when write and isolate tools are enabled. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. The documented per-case update is separate from `update_case`.
+506 tools come from the public API reference, in addition to the helpers and Broker VM tools above. The list names every tool (530) registered when write and isolate tools are enabled. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. The documented per-case update is separate from `update_case`.
 
 <details>
 <summary>All tool names</summary>
@@ -449,6 +477,8 @@ The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpans
 - `post_assets_tags_external_ip_address_ranges_remove`
 - `post_audits_agents_reports`
 - `post_audits_management_logs`
+- `post_auth_reset_initial_password`
+- `post_auth_token`
 - `post_authentication_settings_create`
 - `post_authentication_settings_delete`
 - `post_authentication_settings_get_metadata`
@@ -672,6 +702,7 @@ The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpans
 - `post_legacy_exceptions_get_modules`
 - `post_lists_delete`
 - `post_lists_save`
+- `post_logs`
 - `post_mth_child_add_comment`
 - `post_mth_child_get_all_reports`
 - `post_mth_child_get_comments`
@@ -684,6 +715,12 @@ The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpans
 - `post_netscan_v1_scan_run`
 - `post_netscan_v1_scan_run_by_id`
 - `post_netscan_v1_scan_run_by_id_command`
+- `post_network_interface`
+- `post_network_internal_subnet`
+- `post_network_ntp`
+- `post_network_proxy`
+- `post_network_ssl_certificate`
+- `post_network_trusted_ca`
 - `post_notifications_v1_rule`
 - `post_playbook_clone_by_playbook_id`
 - `post_playbook_save_yaml`
@@ -702,6 +739,7 @@ The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpans
 - `post_rbac_get_user_group`
 - `post_rbac_get_users`
 - `post_rbac_set_user_role`
+- `post_register`
 - `post_relationship`
 - `post_relationships_search`
 - `post_remediation_confirmation_scanning_requests_g_0c28b0`
@@ -780,7 +818,6 @@ The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpans
 - `run_xql_query`
 - `unisolate_endpoint`
 - `update_case`
-
 </details>
 
 ## CLI reference
