@@ -3,7 +3,9 @@ paths:
   /public_api/v1/assets/{asset_id}/:
     get:
       summary: Get Asset by ID
-      description: Retrieve detailed information about the asset specified by asset ID.
+      description: |-
+        Side effects: none. This is a read-only Cortex API call (GET /public_api/v1/assets/{asset_id}/).
+        Retrieve detailed information about the asset specified by asset ID.
       operationId: get_asset_by_id
       tags:
         - Assets

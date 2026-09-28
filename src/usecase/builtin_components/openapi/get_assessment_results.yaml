@@ -3,7 +3,9 @@ paths:
   /public_api/v1/compliance/get_assessment_results/:
     post:
       summary: Get assessment profile results
-      description: Retrieve assessment profile results with optional filtering based on the last successful evaluation.
+      description: |-
+        Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/compliance/get_assessment_results/).
+        Retrieve assessment profile results with optional filtering based on the last successful evaluation.
       operationId: get_assessment_profile_results
       tags:
         - Assessment Profiles

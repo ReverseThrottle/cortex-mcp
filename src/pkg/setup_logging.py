@@ -59,6 +59,6 @@ def configure_library_logging():
     Configure logging levels for external libraries to reduce verbose output.
     """
     # Set library logging to WARNING level to suppress debug/info logs
-    for name in ("mcp.server.lowlevel.server", "mcp.server.streamable_http_manager", "sse_starlette.sse", "httpx", "httpcore", "httpcore.http11", "httpcore.connection"):
+    for name in ("mcp.server.lowlevel.server", "mcp.server.streamable_http_manager", "sse_starlette.sse", "httpx", "httpcore", "httpcore.http11", "httpcore.connection", "fastmcp"):
         logger = logging.getLogger(name)
         logger.setLevel(logging.WARNING)

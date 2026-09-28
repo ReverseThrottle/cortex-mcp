@@ -4,6 +4,7 @@ paths:
     post:
       summary: Get Tenant Info
       description: |- 
+        Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/system/get_tenant_info).
         This tool is used to retrieve your tenant license information, 
         including details about your Cortex environment and license type. 
         This tool helps verify license status and entitlements for operational visibility and compliance.

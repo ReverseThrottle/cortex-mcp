@@ -4,6 +4,7 @@ paths:
     post:
       summary: Get All or Filtered Assets
       description: |-
+        Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/assets/).
         Retrieve a list of all your assets or a filtered list based on specified criteria.
         The maximum result limit is 1000 assets per request.
       operationId: get_assets

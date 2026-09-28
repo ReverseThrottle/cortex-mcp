@@ -4,6 +4,7 @@ from typing import Annotated, Optional
 from fastmcp import Context, FastMCP
 from pydantic import Field
 
+from config.config import get_config
 from entities.exceptions import (
     PAPIAuthenticationError,
     PAPIClientError,
@@ -40,6 +41,8 @@ async def update_case(
     severity: Annotated[Optional[str], Field(description="New severity level. Allowed values: low, medium, high, critical", default=None)] = None,
 ) -> str:
     """
+    Side effects: this operation changes Cortex tenant state (POST /public_api/v1/case/update).
+    It can update case status, assignment, severity, or comments. Confirm the target before calling.
     Update one or more cases on the Cortex platform.
     Supports adding comments/notes, changing status, reassigning to an analyst, and changing severity.
     At least one of comment, status, assigned_user_mail, or severity must be provided.
@@ -110,7 +113,8 @@ class CaseActionsModule(BaseModule):
     """
 
     def register_tools(self):
-        self._add_tool(update_case)
+        if get_config().write_tools_enabled:
+            self._add_tool(update_case)
 
     def register_resources(self):
         pass

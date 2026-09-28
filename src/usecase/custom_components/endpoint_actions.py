@@ -4,6 +4,7 @@ from typing import Annotated, Optional
 from fastmcp import Context, FastMCP
 from pydantic import Field
 
+from config.config import get_config
 from entities.exceptions import (
     PAPIAuthenticationError,
     PAPIClientError,
@@ -34,6 +35,8 @@ async def isolate_endpoint(
     comment: Annotated[Optional[str], Field(description="Reason for isolating the endpoint, e.g. 'Suspected compromise - isolating for investigation'", default=None)] = None,
 ) -> str:
     """
+    Side effects: this operation changes Cortex tenant state (POST /public_api/v1/endpoints/isolate).
+    It isolates endpoints from the network. Confirm the target before calling.
     Isolate one or more endpoints from the network.
     Blocks all network traffic on the endpoint except communication to the Cortex XDR agent.
     Use this when an endpoint may be compromised to prevent lateral movement or data exfiltration.
@@ -79,6 +82,8 @@ async def unisolate_endpoint(
     comment: Annotated[Optional[str], Field(description="Reason for unisolating the endpoint, e.g. 'Investigation complete - endpoint cleared'", default=None)] = None,
 ) -> str:
     """
+    Side effects: this operation changes Cortex tenant state (POST /public_api/v1/endpoints/unisolate).
+    It restores network access to isolated endpoints. Confirm the target before calling.
     Unisolate one or more endpoints, restoring their network connectivity.
     Use this after an endpoint has been investigated and confirmed safe, or when isolation
     was applied in error.
@@ -128,6 +133,8 @@ class EndpointActionsModule(BaseModule):
     """
 
     def register_tools(self):
+        if not get_config().isolate_endpoint_tool_enabled:
+            return
         self._add_tool(isolate_endpoint)
         self._add_tool(unisolate_endpoint)
 

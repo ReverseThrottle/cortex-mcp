@@ -148,9 +148,9 @@ All configuration is via environment variables (or a `.env` file in the project 
 
 | Variable | Default | Description |
 |---|---|---|
-| `MCP_WRITE_TOOLS_ENABLED` | `false` | Enable write tools (`update_case`) |
-| `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED` | `false` | Enable `isolate_endpoint` / `unisolate_endpoint` |
-| `MCP_ELICITATION_ENABLED` | `false` | Enable MCP elicitation support |
+| `MCP_WRITE_TOOLS_ENABLED` | `false` | When `true`, register tools that change tenant state. Read-only tools are always registered. Each mutating tool description states the side effect. |
+| `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED` | `false` | When `true`, register `isolate_endpoint` and `unisolate_endpoint`. |
+| `MCP_ELICITATION_ENABLED` | `false` | When `true`, a mutating tool asks for confirmation through MCP elicitation before it runs. When `false`, registered tools run without that prompt. Write and isolate flags still control registration. |
 
 ### Optional — limits & logging
 
@@ -221,6 +221,10 @@ Configure your AI client to connect to that URL using the HTTP MCP transport.
 
 If `MCP_AUTH_TOKEN` is set, clients must send `Authorization: Bearer <token>` on every
 request, or they get `401`. Set this for any deployment reachable over a network.
+That bearer token authenticates the MCP client to this server. It is not forwarded
+to Cortex. Tenant API credentials stay in the server environment.
+
+`streamable-http` is the remote transport. The server does not expose the deprecated HTTP+SSE transport.
 
 A health-check endpoint is also available at `GET /ping/` (unauthenticated).
 
@@ -228,56 +232,556 @@ A health-check endpoint is also available at `GET /ping/` (unauthenticated).
 
 ## Available tools
 
-Tools are grouped by domain. Write tools and the endpoint isolation tools are **disabled by default** and must be explicitly enabled via environment variables.
+The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpanse, AgentiX, and XSOAR 8) plus the helpers below. Read-only tools are always registered. Mutating tools are registered only when `MCP_WRITE_TOOLS_ENABLED=true`. `isolate_endpoint` and `unisolate_endpoint` are registered only when `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED=true`. Every tool description states whether the call changes tenant state, including when writes are enabled.
 
-### Cases
-
-| Tool | Description |
-|---|---|
-| `get_cases` | Search and filter cases / incidents with pagination and sorting |
-| `update_case` | Add a comment, change status, reassign, or update severity (**write, opt-in**) |
-
-### Issues / Alerts
+### Helpers
 
 | Tool | Description |
 |---|---|
-| `get_issues` | Search and filter security issues / alerts with pagination |
+| `get_cases` | Search cases (POST /public_api/v1/case/search). Read-only. |
+| `update_case` | Update status, assignment, severity, or comments on a list of cases. Changes tenant state. |
+| `get_issues` | Search issues (POST /public_api/v1/issue/search). Read-only. |
+| `get_filtered_endpoints` | Filtered endpoint list (POST /public_api/v1/endpoints/get_endpoint). Read-only. |
+| `isolate_endpoint` | Isolate endpoints from the network. Changes tenant state. |
+| `unisolate_endpoint` | Restore network access to isolated endpoints. Changes tenant state. |
+| `get_assets` | Asset inventory search. Read-only. |
+| `get_asset_by_id` | Fetch one asset by ID. Read-only. |
+| `get_vulnerabilities` | Vulnerability search. Read-only. |
+| `run_xql_query` | Start an XQL query, poll until it finishes, and return rows. Consumes XQL quota. The documented start, results, stream, and quota operations are also separate tools. |
+| `get_assessment_profile_results` | Assessment profile results. Read-only. |
+| `get_tenant_info` | Tenant license information. Read-only. |
+| `insert_script` | Upload a script YAML document. The server zips it for POST /public_api/v1/scripts/insert. Changes tenant state. |
+| `insert_playbook` | Upload a playbook YAML document. The server zips it for POST /public_api/v1/playbooks/insert. Changes tenant state. |
 
-### Endpoints
+### Public API catalog (506 additional tools)
 
-| Tool | Description |
-|---|---|
-| `get_filtered_endpoints` | List endpoints matching host, OS, or agent status filters |
-| `isolate_endpoint` | Block all network traffic on one or more endpoints (**opt-in**) |
-| `unisolate_endpoint` | Restore network access to isolated endpoints (**opt-in**) |
+506 tools come from the public API reference, in addition to the helpers above. The list names every tool (520) registered when write and isolate tools are enabled. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. The documented per-case update is separate from `update_case`.
 
-### Assets
+<details>
+<summary>All tool names</summary>
 
-| Tool | Description |
-|---|---|
-| `get_assets` | Retrieve the asset inventory with optional filters |
-| `get_asset_by_id` | Fetch a single asset by its ID |
+- `delete_appsec_v1_application_by_applicationid`
+- `delete_appsec_v1_application_by_applicationid_ass_3e059a`
+- `delete_appsec_v1_application_criteria_by_criteriaid`
+- `delete_appsec_v1_data_source_instances_by_id`
+- `delete_appsec_v1_policies_by_policyid`
+- `delete_appsec_v1_rules_by_ruleid`
+- `delete_appsec_v1_unified_rules_by_ruleid`
+- `delete_cwp_policies_by_id`
+- `delete_cwp_registry_onboarding_instances_by_connectorid`
+- `delete_engines_by_id`
+- `delete_iam_v1_role_by_role_id`
+- `delete_iam_v1_user_group_by_group_id`
+- `delete_integration_v1_external_application_by_app_4a842b`
+- `delete_jobs_by_job_id`
+- `delete_notifications_v1_rule_by_rule_uuid`
+- `delete_policy_by_policy_id`
+- `delete_rule_by_id`
+- `delete_settings_integration_by_instance_id`
+- `delete_uvm_public_v1_delete_policy_by_id`
+- `get_appsec_v1_application`
+- `get_appsec_v1_application_by_applicationid`
+- `get_appsec_v1_application_by_applicationid_assets_067d6a`
+- `get_appsec_v1_application_by_applicationid_assets_75c322`
+- `get_appsec_v1_application_by_applicationid_assets_7ffe0d`
+- `get_appsec_v1_application_configuration`
+- `get_appsec_v1_application_criteria_all`
+- `get_appsec_v1_application_criteria_by_criteriaid`
+- `get_appsec_v1_billing_contributors`
+- `get_appsec_v1_code_to_cloud_coverage`
+- `get_appsec_v1_data_source_instances`
+- `get_appsec_v1_data_source_instances_by_id`
+- `get_appsec_v1_issues_fix_by_issueid_fix_suggestion`
+- `get_appsec_v1_issues_fix_by_remediationid`
+- `get_appsec_v1_package_explorer_packages_by_name_v_d50c8f`
+- `get_appsec_v1_policies`
+- `get_appsec_v1_policies_by_policyid`
+- `get_appsec_v1_repositories`
+- `get_appsec_v1_repositories_by_assetid`
+- `get_appsec_v1_repositories_by_assetid_branches`
+- `get_appsec_v1_repositories_by_assetid_scan_configuration`
+- `get_appsec_v1_rules`
+- `get_appsec_v1_rules_by_ruleid`
+- `get_appsec_v1_rules_rule_labels`
+- `get_appsec_v1_sbom_organization`
+- `get_appsec_v1_sbom_repository`
+- `get_appsec_v1_scans_by_scanid_findings`
+- `get_appsec_v1_scans_by_scanid_issues`
+- `get_appsec_v1_scans_ci`
+- `get_appsec_v1_scans_periodic`
+- `get_appsec_v1_scans_pr`
+- `get_appsec_v1_scans_unscanned_repositories`
+- `get_appsec_v1_unified_rules`
+- `get_appsec_v1_unified_rules_by_ruleid`
+- `get_assessment_profile_results`
+- `get_asset_by_id`
+- `get_assets`
+- `get_assets_by_assetid_sbom`
+- `get_assets_by_id_raw_fields`
+- `get_assets_enum_by_field_name`
+- `get_assets_schema`
+- `get_automation_metadata`
+- `get_brokers`
+- `get_brokers_action_status_by_action_id`
+- `get_brokers_by_device_id_applets_by_applet_name`
+- `get_brokers_by_device_id_logs_download`
+- `get_brokers_by_device_id_logs_status`
+- `get_brokers_images`
+- `get_case_artifacts_by_case_id`
+- `get_case_schema`
+- `get_cases`
+- `get_ciem_v1_access_destination_by_destination_uai`
+- `get_ciem_v1_access_granter_by_granter_uai`
+- `get_ciem_v1_access_source_by_source_uai`
+- `get_ciem_v1_assets_by_assetid_least_privileged_access`
+- `get_clcs_get_connected_devices`
+- `get_cli_releases_version`
+- `get_cloud_consumption_v1_license_posture`
+- `get_cloud_consumption_v1_license_runtime`
+- `get_contentpacks_metadata_installed`
+- `get_cwp_policies`
+- `get_cwp_policies_by_id`
+- `get_cwp_registry_onboarding_instances_by_connectorid`
+- `get_dashboards`
+- `get_dashboards_by_dashboard_id`
+- `get_engines_download_by_id`
+- `get_engines_get`
+- `get_engines_get_by_id`
+- `get_entry_download_by_entry_id`
+- `get_filtered_endpoints`
+- `get_healthcheck`
+- `get_iam_v1_api_key_by_api_key_id`
+- `get_iam_v1_role`
+- `get_iam_v1_role_permission_config`
+- `get_iam_v1_scope_by_entity_type_by_entity_id`
+- `get_iam_v1_user`
+- `get_iam_v1_user_by_user_email`
+- `get_iam_v1_user_group`
+- `get_incident_csv_by_filename`
+- `get_incident_load_by_id`
+- `get_incidentfields`
+- `get_indicators_csv_by_filename`
+- `get_integration_v1_external_application`
+- `get_integration_v1_external_application_by_applic_9b2917`
+- `get_investigation_by_incident_id_workplan`
+- `get_issues`
+- `get_lists`
+- `get_lists_download_by_list_id`
+- `get_netscan_v1_scan_run`
+- `get_netscan_v1_scan_run_by_id`
+- `get_notifications_v1_list_rules`
+- `get_notifications_v1_rule_by_rule_uuid`
+- `get_performance_incident_export_by_incident_id`
+- `get_playbook_by_playbook_id`
+- `get_policy_by_policy_id`
+- `get_report_by_id_latest`
+- `get_reports`
+- `get_rule_by_id`
+- `get_settings_integration_commands`
+- `get_tenant_info`
+- `get_uvem_v1_vulnerabilities`
+- `get_uvm_public_v1_get_policy_by_id`
+- `get_v2_cwp_policies`
+- `get_v2_cwp_policies_by_id`
+- `get_vc_changes_uncommitted`
+- `get_vulnerabilities`
+- `get_vulnerability_management_v1_external_scans_as_ed3053`
+- `insert_playbook`
+- `insert_script`
+- `isolate_endpoint`
+- `patch_appsec_v1_rules_by_ruleid`
+- `patch_iam_v1_user_by_user_email`
+- `patch_iam_v1_user_group_by_group_id`
+- `patch_notifications_v1_update_rule_status_by_rule_uuid`
+- `patch_policy_by_policy_id`
+- `patch_rule_by_id`
+- `post_actions_file_retrieval_details`
+- `post_actions_get_action_status`
+- `post_alerts_get_alerts`
+- `post_alerts_get_alerts_multi_events`
+- `post_alerts_get_alerts_pcap`
+- `post_alerts_insert_cef_alerts`
+- `post_alerts_insert_parsed_alerts`
+- `post_alerts_update_alerts`
+- `post_api_keys_delete`
+- `post_api_keys_generate`
+- `post_api_keys_get_api_keys`
+- `post_appsec_v1_application`
+- `post_appsec_v1_application_by_applicationid_asset_d07aaa`
+- `post_appsec_v1_application_criteria`
+- `post_appsec_v1_collectors_by_collectorid`
+- `post_appsec_v1_data_source_instances`
+- `post_appsec_v1_issues_fix_trigger_fix_pull_request`
+- `post_appsec_v1_policies`
+- `post_appsec_v1_rules`
+- `post_appsec_v1_rules_validate`
+- `post_appsec_v1_scan_repository_by_repositoryid`
+- `post_appsec_v1_unified_rules`
+- `post_asm_management_remove_asm_data`
+- `post_asm_management_upload_asm_data`
+- `post_asset_groups`
+- `post_asset_groups_create`
+- `post_asset_groups_delete_by_group_id`
+- `post_asset_groups_update_by_group_id`
+- `post_assets_assets_internet_exposure_annotation`
+- `post_assets_bulk_update_vulnerability_tests`
+- `post_assets_create_asset_tag_rules`
+- `post_assets_create_user_defined_ip_range`
+- `post_assets_delete_unused_tag`
+- `post_assets_get_asset_internet_exposure`
+- `post_assets_get_assets_internet_exposure`
+- `post_assets_get_assets_internet_exposure_last_ext_89526f`
+- `post_assets_get_business_units`
+- `post_assets_get_external_ip_address_range`
+- `post_assets_get_external_ip_address_ranges`
+- `post_assets_get_external_ip_address_ranges_last_e_c11293`
+- `post_assets_get_external_service`
+- `post_assets_get_external_services`
+- `post_assets_get_external_services_last_external_a_4d82b2`
+- `post_assets_get_external_website`
+- `post_assets_get_external_websites`
+- `post_assets_get_external_websites_last_external_a_1e24fe`
+- `post_assets_get_vulnerability_tests`
+- `post_assets_override_bu_tags`
+- `post_assets_tags_assets_internet_exposure_assign`
+- `post_assets_tags_assets_internet_exposure_remove`
+- `post_assets_tags_external_ip_address_ranges_assign`
+- `post_assets_tags_external_ip_address_ranges_remove`
+- `post_audits_agents_reports`
+- `post_audits_management_logs`
+- `post_authentication_settings_create`
+- `post_authentication_settings_delete`
+- `post_authentication_settings_get_metadata`
+- `post_authentication_settings_get_settings`
+- `post_authentication_settings_update`
+- `post_automation`
+- `post_automation_load_by_script_id`
+- `post_automation_search`
+- `post_bioc_delete`
+- `post_bioc_get`
+- `post_bioc_insert`
+- `post_brokers_by_device_id`
+- `post_brokers_by_device_id_applets_by_applet_name_3f3fe4`
+- `post_brokers_by_device_id_applets_by_applet_name_b7ff42`
+- `post_brokers_by_device_id_applets_by_applet_name_config`
+- `post_brokers_by_device_id_applets_network_mapper_2aed74`
+- `post_brokers_by_device_id_applets_wec_wef_cert`
+- `post_brokers_by_device_id_delete`
+- `post_brokers_by_device_id_logs_generate`
+- `post_brokers_by_device_id_reboot`
+- `post_brokers_by_device_id_shutdown`
+- `post_brokers_by_device_id_upgrade`
+- `post_brokers_registration_token`
+- `post_case_timeline_by_case_id`
+- `post_case_timeline_by_case_id_add_record`
+- `post_case_update_by_case_id`
+- `post_clcs_disconnect_devices`
+- `post_cloud_consumption_v1_details`
+- `post_cloud_consumption_v1_over_time`
+- `post_cloud_consumption_v1_per_asset_type`
+- `post_cloud_onboarding_create_instance_template`
+- `post_cloud_onboarding_create_outpost_template`
+- `post_cloud_onboarding_delete_instance`
+- `post_cloud_onboarding_edit_instance`
+- `post_cloud_onboarding_edit_outpost`
+- `post_cloud_onboarding_enable_disable_account`
+- `post_cloud_onboarding_enable_disable_instance`
+- `post_cloud_onboarding_get_accounts`
+- `post_cloud_onboarding_get_azure_approved_tenants`
+- `post_cloud_onboarding_get_identifiers`
+- `post_cloud_onboarding_get_instance_details`
+- `post_cloud_onboarding_get_instances`
+- `post_cloud_onboarding_get_outposts`
+- `post_cloud_onboarding_list_regions`
+- `post_compliance_add_assessment_profile`
+- `post_compliance_add_control`
+- `post_compliance_add_rules_to_control`
+- `post_compliance_add_standard`
+- `post_compliance_delete_assessment_profile`
+- `post_compliance_delete_control`
+- `post_compliance_delete_rules_from_control`
+- `post_compliance_delete_standard`
+- `post_compliance_edit_assessment_profile`
+- `post_compliance_edit_control`
+- `post_compliance_edit_standard`
+- `post_compliance_get_assessment_profile`
+- `post_compliance_get_assessment_profiles`
+- `post_compliance_get_asset`
+- `post_compliance_get_assets`
+- `post_compliance_get_control`
+- `post_compliance_get_control_by_revision`
+- `post_compliance_get_control_categories_and_subcategories`
+- `post_compliance_get_control_failed_results`
+- `post_compliance_get_controls`
+- `post_compliance_get_reports`
+- `post_compliance_get_rule_failed_results`
+- `post_compliance_get_standard`
+- `post_compliance_get_standards`
+- `post_configurations_agent_action_center_expiration`
+- `post_configurations_agent_action_center_expiration_set`
+- `post_configurations_agent_advanced_analysis`
+- `post_configurations_agent_advanced_analysis_set`
+- `post_configurations_agent_agent_status`
+- `post_configurations_agent_agent_status_set`
+- `post_configurations_agent_auto_upgrade`
+- `post_configurations_agent_auto_upgrade_set`
+- `post_configurations_agent_content_management`
+- `post_configurations_agent_content_management_set`
+- `post_configurations_agent_cortex_xdr_log_collection`
+- `post_configurations_agent_cortex_xdr_log_collection_set`
+- `post_configurations_agent_critical_environment_ve_ea834b`
+- `post_configurations_agent_critical_environment_versions`
+- `post_configurations_agent_endpoint_administration_463e12`
+- `post_configurations_agent_endpoint_administration_c62e23`
+- `post_configurations_agent_informative_btp_issues`
+- `post_configurations_agent_informative_btp_issues_set`
+- `post_configurations_agent_wildfire_analysis`
+- `post_configurations_agent_wildfire_analysis_set`
+- `post_content_bundle`
+- `post_content_checknew`
+- `post_content_install`
+- `post_contentpacks_marketplace_search`
+- `post_correlations_delete`
+- `post_correlations_get`
+- `post_correlations_insert`
+- `post_cwp_policies`
+- `post_cwp_registry_onboarding_instances`
+- `post_dashboards_delete`
+- `post_dashboards_get`
+- `post_dashboards_insert`
+- `post_data_security_data_patterns`
+- `post_data_security_objects_fields`
+- `post_data_security_objects_files`
+- `post_dataset_define_dataset`
+- `post_dataset_delete_dataset`
+- `post_dataset_get_created_datasets`
+- `post_device_control_get_violations`
+- `post_disable_injection_prevention_rules_add`
+- `post_disable_injection_prevention_rules_disable`
+- `post_disable_injection_prevention_rules_fetch`
+- `post_disable_prevention_add`
+- `post_disable_prevention_delete`
+- `post_disable_prevention_edit`
+- `post_disable_prevention_fetch`
+- `post_disable_prevention_get_modules`
+- `post_distributions_create`
+- `post_distributions_delete`
+- `post_distributions_get_dist_url`
+- `post_distributions_get_distributions`
+- `post_distributions_get_status`
+- `post_distributions_get_versions`
+- `post_distributions_restore`
+- `post_endpoints_abort_scan`
+- `post_endpoints_delete`
+- `post_endpoints_file_retrieval`
+- `post_endpoints_get_endpoints`
+- `post_endpoints_get_policy`
+- `post_endpoints_get_profiles`
+- `post_endpoints_quarantine`
+- `post_endpoints_restore`
+- `post_endpoints_scan`
+- `post_endpoints_update_agent_name`
+- `post_endpoints_upgrade`
+- `post_engines`
+- `post_engines_config`
+- `post_engines_upgrade`
+- `post_entries_get`
+- `post_entries_insert`
+- `post_entry`
+- `post_entry_execute_sync`
+- `post_entry_note`
+- `post_entry_tags`
+- `post_entry_upload_by_incident_id`
+- `post_evidence_delete`
+- `post_evidence_search`
+- `post_featured_fields_replace_ad_groups`
+- `post_featured_fields_replace_hosts`
+- `post_featured_fields_replace_ip_addresses`
+- `post_featured_fields_replace_users`
+- `post_forensics_investigations`
+- `post_forensics_investigations_collections`
+- `post_forensics_investigations_collections_get_data`
+- `post_forensics_investigations_collections_hunt`
+- `post_forensics_investigations_collections_triage`
+- `post_forensics_investigations_collections_triage_b7c7c2`
+- `post_forensics_investigations_collections_triage_fe802a`
+- `post_get_attack_surface_rules`
+- `post_get_risk_score`
+- `post_get_risky_hosts`
+- `post_get_risky_users`
+- `post_get_triage_presets`
+- `post_hash_exceptions_allowlist`
+- `post_hash_exceptions_blocklist`
+- `post_iam_v1_role`
+- `post_iam_v1_user_group`
+- `post_incident`
+- `post_incident_batch`
+- `post_incident_batch_exporttocsv`
+- `post_incident_batchdelete`
+- `post_incident_close`
+- `post_incident_investigate`
+- `post_incident_json`
+- `post_incident_upload_by_incident_id`
+- `post_incidentfield`
+- `post_incidents_get_incident_extra_data`
+- `post_incidents_get_incidents`
+- `post_incidents_search`
+- `post_incidents_update_incident`
+- `post_incidenttype`
+- `post_indicator_create`
+- `post_indicator_edit`
+- `post_indicators_batch_exporttocsv`
+- `post_indicators_batchdelete`
+- `post_indicators_delete`
+- `post_indicators_feed_json`
+- `post_indicators_get`
+- `post_indicators_insert`
+- `post_indicators_insert_csv`
+- `post_indicators_insert_jsons`
+- `post_indicators_search`
+- `post_indicators_whitelist_update`
+- `post_integration_v1_external_application`
+- `post_integrations_syslog_create`
+- `post_integrations_syslog_delete`
+- `post_integrations_syslog_get`
+- `post_integrations_syslog_test`
+- `post_integrations_syslog_update`
+- `post_inv_playbook_task_add_by_investigationid`
+- `post_inv_playbook_task_complete`
+- `post_inv_playbook_task_execute`
+- `post_inv_playbook_task_uncomplete`
+- `post_investigation_by_incident_id`
+- `post_investigation_by_incident_id_reopen`
+- `post_investigation_by_incident_id_workplan_tasks`
+- `post_investigation_by_investigation_id_close`
+- `post_investigation_by_investigation_id_context`
+- `post_issue`
+- `post_issue_by_issue_id`
+- `post_issue_exceptions`
+- `post_issue_exceptions_disable`
+- `post_issue_exceptions_search`
+- `post_issue_schema`
+- `post_itemsdependencies`
+- `post_jobs`
+- `post_jobs_by_operation_by_job_id`
+- `post_jobs_search`
+- `post_legacy_exceptions_add`
+- `post_legacy_exceptions_delete`
+- `post_legacy_exceptions_edit`
+- `post_legacy_exceptions_fetch`
+- `post_legacy_exceptions_get_modules`
+- `post_lists_delete`
+- `post_lists_save`
+- `post_mth_child_add_comment`
+- `post_mth_child_get_all_reports`
+- `post_mth_child_get_comments`
+- `post_mth_child_get_reports_by_incident_id`
+- `post_mth_child_get_reports_by_source_id`
+- `post_mth_child_get_reports_by_statuses`
+- `post_mth_child_report_update_assign`
+- `post_mth_child_report_update_status`
+- `post_netscan_v1_scan_definition`
+- `post_netscan_v1_scan_run`
+- `post_netscan_v1_scan_run_by_id`
+- `post_netscan_v1_scan_run_by_id_command`
+- `post_notifications_v1_rule`
+- `post_playbook_clone_by_playbook_id`
+- `post_playbook_save_yaml`
+- `post_playbook_search`
+- `post_playbooks_delete`
+- `post_playbooks_get`
+- `post_policies_prevention_edit`
+- `post_policy`
+- `post_policy_search`
+- `post_profiles_add_signer_cn_to_allowlist`
+- `post_profiles_prevention_add`
+- `post_profiles_prevention_edit`
+- `post_profiles_prevention_get_modules`
+- `post_quarantine_status`
+- `post_rbac_get_roles`
+- `post_rbac_get_user_group`
+- `post_rbac_get_users`
+- `post_rbac_set_user_role`
+- `post_relationship`
+- `post_relationships_search`
+- `post_remediation_confirmation_scanning_requests_g_0c28b0`
+- `post_remediation_confirmation_scanning_requests_get`
+- `post_rule`
+- `post_rule_search`
+- `post_scheduled_queries_delete`
+- `post_scheduled_queries_insert`
+- `post_scheduled_queries_list`
+- `post_scripts_delete`
+- `post_scripts_get`
+- `post_scripts_get_script_code`
+- `post_scripts_get_script_execution_results`
+- `post_scripts_get_script_execution_results_files`
+- `post_scripts_get_script_execution_status`
+- `post_scripts_get_script_metadata`
+- `post_scripts_get_scripts`
+- `post_scripts_run_script`
+- `post_scripts_run_snippet_code_script`
+- `post_settings_credentials`
+- `post_settings_credentials_delete`
+- `post_settings_integration_fetch_history`
+- `post_settings_integration_reset_by_instance_id`
+- `post_settings_integration_search`
+- `post_system_diagnostics_data_papi`
+- `post_tags_agents_assign`
+- `post_tags_agents_create`
+- `post_tags_agents_delete_permanently`
+- `post_tags_agents_remove`
+- `post_triage_endpoint`
+- `post_uvem_v1_get_affected_software`
+- `post_uvm_public_v1_create_policy`
+- `post_uvm_public_v1_list_policies`
+- `post_v2_alerts_get_alerts_multi_events`
+- `post_v2_cwp_policies`
+- `post_v2_xql_delete_dataset`
+- `post_vc_changes_uncommitted_commit`
+- `post_vulnerability_finding_by_platform_id`
+- `post_vulnerability_finding_search`
+- `post_vulnerability_finding_snapshot`
+- `post_vulnerability_management_v1_external_scans_assets`
+- `post_vulnerability_management_v1_scan`
+- `post_widgets_delete`
+- `post_widgets_get`
+- `post_widgets_insert`
+- `post_xpanse_remediation_rules_rules`
+- `post_xql_add_dataset`
+- `post_xql_get_datasets`
+- `post_xql_get_query_results`
+- `post_xql_get_query_results_stream`
+- `post_xql_get_quota`
+- `post_xql_library_delete`
+- `post_xql_library_get`
+- `post_xql_library_insert`
+- `post_xql_lookups_add_data`
+- `post_xql_lookups_get_data`
+- `post_xql_lookups_remove_data`
+- `post_xql_start_xql_query`
+- `post_xsoar_public_v2_statistics_widgets_query`
+- `put_appsec_v1_application_by_applicationid`
+- `put_appsec_v1_data_source_instances_by_id`
+- `put_appsec_v1_policies_by_policyid`
+- `put_appsec_v1_repositories_by_assetid_branches`
+- `put_appsec_v1_repositories_by_assetid_scan_configuration`
+- `put_appsec_v1_unified_rules_by_ruleid`
+- `put_cwp_policies_by_id`
+- `put_cwp_registry_onboarding_instances_by_connectorid`
+- `put_iam_v1_api_key_by_api_key_id`
+- `put_iam_v1_scope_by_entity_type_by_entity_id`
+- `put_integration_v1_external_application_by_applic_666c9e`
+- `put_notifications_v1_rule_by_rule_uuid`
+- `put_settings_credentials`
+- `put_settings_integration`
+- `put_uvm_public_v1_update_policy_by_id`
+- `put_v2_cwp_policies_by_id`
+- `run_xql_query`
+- `unisolate_endpoint`
+- `update_case`
 
-### Vulnerabilities
-
-| Tool | Description |
-|---|---|
-| `get_vulnerabilities` | Paginated vulnerability search (CVSS, EPSS, CISA KEV, package, vendor filters) |
-
-### XQL
-
-| Tool | Description |
-|---|---|
-| `run_xql_query` | Execute an XQL query; automatically polls until complete and returns results |
-
-### Assessment & Tenant
-
-| Tool | Description |
-|---|---|
-| `get_assessment_profile_results` | Retrieve assessment profile results |
-| `get_tenant_info` | Retrieve tenant metadata |
-
----
+</details>
 
 ## CLI reference
 

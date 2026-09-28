@@ -1,5 +1,6 @@
 import io
 import logging
+from json import JSONDecodeError
 
 import httpx
 from httpx import ConnectError, RequestError, TimeoutException
@@ -15,6 +16,18 @@ from entities.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Headers the MCP client may copy onto an outbound Cortex request. Everything
+# else (cookies, custom client headers, the inbound bearer) is dropped in send().
+_PASSTHROUGH_HEADERS = {
+    "content-type",
+    "content-length",
+    "accept",
+    "accept-encoding",
+    "host",
+    "user-agent",
+    "x-is-mcp",
+}
 
 
 class PAPIClient(httpx.AsyncClient):
@@ -44,6 +57,11 @@ class PAPIClient(httpx.AsyncClient):
         self._papi_headers = dict(headers)
 
     async def send(self, request: httpx.Request, **kwargs) -> httpx.Response:
+        tenant_headers = {key.lower(): key for key in self._papi_headers}
+        for key in list(request.headers.keys()):
+            lowered = key.lower()
+            if lowered not in _PASSTHROUGH_HEADERS and lowered not in tenant_headers:
+                del request.headers[key]
         for key, value in self._papi_headers.items():
             request.headers[key] = value
         return await super().send(request, **kwargs)
@@ -75,7 +93,8 @@ class PAPIClient(httpx.AsyncClient):
         params = None,
         headers = None,
         cookies = None,
-        timeout = None) -> dict:
+        timeout = None,
+        raw: bool = False) -> dict | bytes:
         """
         Send an HTTP request to the PAPI server asynchronously.
 
@@ -143,6 +162,12 @@ class PAPIClient(httpx.AsyncClient):
             default_headers.update(headers)
             headers = default_headers
 
+        # Multipart uploads must set their own Content-Type boundary. Forcing
+        # application/json here makes the tenant reject the body.
+        if files is not None:
+            headers.pop('Content-Type', None)
+            headers.pop('content-type', None)
+
         full_url = f'{self.base_url}{url}'
         logger.info(f'Sending async request to {full_url}')
 
@@ -155,7 +180,8 @@ class PAPIClient(httpx.AsyncClient):
                 headers=headers,
                 cookies=cookies,
                 timeout=timeout if timeout else self.timeout,
-                json=json,
+                json=None if files is not None else json,
+                files=files,
                 content=content,
             )
         except ConnectError as e:
@@ -198,9 +224,12 @@ class PAPIClient(httpx.AsyncClient):
             logger.error(err_msg)
             raise PAPIResponseError(err_msg)
 
+        if raw:
+            return response.content
+
         try:
             return response.json()
-        except json.JSONDecodeError as e:
+        except JSONDecodeError as e:
             err_msg = f'Invalid JSON response from server for request to {url}: {e}'
             logger.error(err_msg)
             raise PAPIResponseError(err_msg) from e

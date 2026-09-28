@@ -3,7 +3,9 @@ paths:
   /public_api/v1/endpoints/get_endpoint/:
     post:
       summary: Get endpoints filtered by endpoint
-      description: This tool is used to retrieve a filtered list of endpoints managed by the XDR agents based on their ids, status and platform.
+      description: |-
+        Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/endpoints/get_endpoint/).
+        This tool is used to retrieve a filtered list of endpoints managed by the XDR agents based on their ids, status and platform.
       operationId: get_filtered_endpoints
       tags:
         - Endpoints
