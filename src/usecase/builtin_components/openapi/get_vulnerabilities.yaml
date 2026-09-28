@@ -4,6 +4,7 @@ paths:
     post:
       summary: Get list of vulnerabilities
       description: |-
+        Side effects: none. This is a read-only Cortex API call (POST /public_api/uvem/v1/get_vulnerabilities).
         Get a list of vulnerabilities that match the filter fields. The list includes key information about each vulnerability.
         Required license: Requires the Cortex Cloud Posture Management add-on.
         This tool retrieves a list of JSON assets (vulnerabilities) using a cursor-based pagination API.

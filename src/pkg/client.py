@@ -143,6 +143,12 @@ class PAPIClient(httpx.AsyncClient):
             default_headers.update(headers)
             headers = default_headers
 
+        # Multipart uploads must set their own Content-Type boundary. Forcing
+        # application/json here makes the tenant reject the body.
+        if files is not None:
+            headers.pop('Content-Type', None)
+            headers.pop('content-type', None)
+
         full_url = f'{self.base_url}{url}'
         logger.info(f'Sending async request to {full_url}')
 
@@ -155,7 +161,8 @@ class PAPIClient(httpx.AsyncClient):
                 headers=headers,
                 cookies=cookies,
                 timeout=timeout if timeout else self.timeout,
-                json=json,
+                json=None if files is not None else json,
+                files=files,
                 content=content,
             )
         except ConnectError as e:

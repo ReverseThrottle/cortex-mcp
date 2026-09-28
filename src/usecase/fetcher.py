@@ -12,6 +12,7 @@ from pkg.util import get_papi_auth_headers, get_papi_url
 
 logger = logging.getLogger(__name__)
 
+
 class Fetcher:
     """
     Fetcher class for interacting with public API endpoints.
@@ -30,7 +31,16 @@ class Fetcher:
         self.api_key = api_key
         self.api_key_id = api_key_id
 
-    async def send_request(self, path: str, method: str = "POST", data: Optional[dict | str] = None, headers: Optional[dict] = None, omit_papi_prefix: bool = False, stream: bool = False) -> dict | io.BytesIO:
+    async def send_request(
+        self,
+        path: str,
+        method: str = "POST",
+        data: Optional[dict | str] = None,
+        headers: Optional[dict] = None,
+        omit_papi_prefix: bool = False,
+        stream: bool = False,
+        files: Optional[dict] = None,
+    ) -> dict | io.BytesIO:
         """
         Send an HTTP request to the public API.
 
@@ -44,6 +54,7 @@ class Fetcher:
             headers (dict, optional): Additional HTTP headers to include. Defaults to None.
             omit_papi_prefix (bool, optional): Whether to skip adding the /public_api/v1 prefix. Defaults to False.
             stream (bool, optional): Whether to stream response. Defaults to False.
+            files (dict, optional): Multipart file payload. When set, the body is not sent as JSON.
 
         Returns:
             dict: The response from the request.
@@ -55,7 +66,9 @@ class Fetcher:
 
         headers = get_papi_auth_headers(self.api_key, self.api_key_id)
         async with PAPIClient(self.url, headers) as client:
-            if stream:
+            if files is not None:
+                result = await client.request(method, path, files=files, headers=headers)
+            elif stream:
                 result = await client.stream(method, path, data=data, headers=headers)
             else:
                 result = await client.request(method, path, json=data, headers=headers)

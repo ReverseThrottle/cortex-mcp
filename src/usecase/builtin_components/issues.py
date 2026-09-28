@@ -41,6 +41,7 @@ async def get_issues(ctx: Context,
                     sort: Annotated[Optional[dict], Field(description="Dictionary of field and keyword to sort by. By default the sort is defined as observation time, desc")] = None,
                     ) -> str:
     """
+    Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/issue/search).
     Retrieves a list of issues or alerts from the Cortex platform.
     Use this tool to fetch all issues, or a filtered subset of issues, or one issue, based on various criteria such as time range, severity, status, or specific alert IDs.
     This is highly valuable for security monitoring, threat hunting, and reporting on detected security events.

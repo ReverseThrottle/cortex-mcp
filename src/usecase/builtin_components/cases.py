@@ -42,6 +42,7 @@ async def get_cases(ctx: Context,
                     sort: Annotated[Optional[dict], Field(description="Dictionary of field and keyword to sort by. By default the sort is defined as creation_time, desc")] = None,
                     ) -> str:
     """
+    Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/case/search).
     Retrieves a list of cases or incidents from the Cortex platform.
     Use this tool to fetch all cases, or a filtered subset of cases, based on various criteria such as time range, status, or specific case IDs.
     This is highly valuable for security monitoring, historical analysis, and reporting on detected cases.

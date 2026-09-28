@@ -48,6 +48,8 @@ async def run_xql_query(
     limit: Annotated[int, Field(description="Maximum number of result rows to return. Max 1000.", default=100, ge=1, le=1000)] = 100,
 ) -> str:
     """
+    Side effects: this operation changes Cortex tenant state (POST /public_api/v1/xql/start_xql_query).
+    It starts a query and consumes XQL quota. Confirm the query before calling.
     Execute an XQL query against the Cortex platform and return the results.
     XQL (Extended Query Language) enables powerful threat hunting and investigation across
     all Cortex data sources. The query runs asynchronously — this tool starts the query,
