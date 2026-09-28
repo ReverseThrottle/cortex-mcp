@@ -52,6 +52,12 @@ def setup_api_arguments(subparser: argparse.ArgumentParser):
         default=config.papi_url_env_key,
         help="The server url (default: environment variable: CORTEX_MCP_PAPI_URL).",
     )
+    subparser.add_argument(
+        '--key-type',
+        choices=["standard", "advanced"],
+        default=None,
+        help="API key type: 'standard' (default) or 'advanced' (default: environment variable: CORTEX_MCP_PAPI_KEY_TYPE).",
+    )
 
 
 def setup_commands(subparsers: argparse._SubParsersAction):
@@ -128,6 +134,9 @@ def setup_env(args: argparse.Namespace):
     if hasattr(args, "log_level") and args.log_level:
         os.environ["LOG_LEVEL"] = args.log_level
 
+    if hasattr(args, "key_type") and args.key_type:
+        os.environ["CORTEX_MCP_PAPI_KEY_TYPE"] = args.key_type
+
     if hasattr(args, "folder") and args.folder:
         os.environ["CORTEX_MCP_UPDATE_FOLDER"] = args.folder
 
@@ -196,7 +205,12 @@ async def download_update_package() -> str:
     url = get_papi_url(config.papi_url_env_key)
     download_endpoint: str = f"{url}/public_api/v1/mcp/download/"
 
-    fetcher: Fetcher = Fetcher(url=url, api_key_id=config.papi_auth_id_key, api_key=config.papi_auth_header_key)
+    fetcher: Fetcher = Fetcher(
+        url=url,
+        api_key_id=config.papi_auth_id_key,
+        api_key=config.papi_auth_header_key,
+        key_type=config.papi_key_type,
+    )
 
     # Send POST request to download the zip file
     response: io.BytesIO = await fetcher.send_request(

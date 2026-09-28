@@ -30,7 +30,7 @@ from fastmcp.server.server import Transport
 from config.config import get_config
 from pkg.client import PAPIClient
 from pkg.setup_logging import setup_logging
-from pkg.util import bundle_openapi_from_folders, get_papi_auth_headers, get_papi_url
+from pkg.util import bundle_openapi_from_folders, get_papi_url
 from pkg.write_confirmation import WriteConfirmationMiddleware
 from service.cortex_mcp.server import create_mcp_server
 from usecase.module_util import discover_and_register_modules
@@ -145,7 +145,13 @@ async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, au
     # Catalog calls include scans, exports, and XQL streams that outlive the 30s default.
     open_api_mcp = FastMCP.from_openapi(
         spec,
-        PAPIClient(get_papi_url(papi_url), get_papi_auth_headers(api_key, api_key_id), timeout=300),
+        PAPIClient(
+            get_papi_url(papi_url),
+            api_key,
+            api_key_id,
+            key_type=get_config().papi_key_type,
+            timeout=300,
+        ),
         route_map_fn=openapi_route_map,
     )
     await mcp.import_server(server=open_api_mcp)

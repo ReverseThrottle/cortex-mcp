@@ -329,7 +329,8 @@ async def test_openapi_client_restores_tenant_credentials():
 
     client = PAPIClient(
         "https://api.example.invalid",
-        {"Authorization": "tenant-secret", "x-xdr-auth-id": "42"},
+        "tenant-secret",
+        "42",
         transport=httpx.MockTransport(handler),
     )
     request = client.build_request(
@@ -360,7 +361,8 @@ async def test_openapi_client_restores_tenant_credentials():
 async def test_non_json_success_raises_response_error():
     client = PAPIClient(
         "https://api.example.invalid",
-        {"Authorization": "tenant-secret", "x-xdr-auth-id": "42"},
+        "tenant-secret",
+        "42",
         transport=httpx.MockTransport(lambda request: httpx.Response(200, content=b"not-json")),
     )
     with pytest.raises(PAPIResponseError):

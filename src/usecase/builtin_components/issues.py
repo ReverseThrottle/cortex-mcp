@@ -92,7 +92,21 @@ async def get_issues(
     if filters:
         for f in filters:
             if f.get("field") == "id":
-                f["value"] = [int(v) for v in f["value"]]  # Ensure id values are integers
+                raw_value = f.get("value")
+                if not isinstance(raw_value, list):
+                    raw_value = [raw_value]
+                try:
+                    f["value"] = [int(v) for v in raw_value]
+                except (TypeError, ValueError) as e:
+                    return create_response(
+                        data={
+                            "error": (
+                                f"Invalid 'id' filter value {f.get('value')!r}: "
+                                f"must be an integer or list of integers ({e})"
+                            )
+                        },
+                        is_error=True,
+                    )
         payload["request_data"]["filters"] = filters
     if sort:
         payload["request_data"]["sort"] = sort
