@@ -6,6 +6,7 @@ from typing import Annotated
 from fastmcp import Context, FastMCP
 from pydantic import Field
 
+from config.config import get_config
 from entities.exceptions import (
     PAPIAuthenticationError,
     PAPIClientError,
@@ -109,6 +110,8 @@ class ContentUploadsModule(BaseModule):
     """Multipart script and playbook uploads documented by the Cortex public API."""
 
     def register_tools(self):
+        if not get_config().write_tools_enabled:
+            return
         self._add_tool(insert_script)
         self._add_tool(insert_playbook)
 

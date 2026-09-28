@@ -13,7 +13,9 @@ import os
 # Enable advanced FastMCP OpenAPI parser for enhanced API specification processing
 # This must be set before importing FastMCP to ensure the new parser is used for
 # better compatibility with complex OpenAPI schemas and improved error handling
-os.environ.setdefault("FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER", "true") # noqa: E402
+# Force the experimental parser. setdefault would leave an explicit "false",
+# and the legacy parser calls raise_for_status on the dict PAPIClient.request returns.
+os.environ["FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER"] = "true"  # noqa: E402
 
 import asyncio
 import logging
@@ -21,6 +23,7 @@ import signal
 from functools import partial
 
 from fastmcp import FastMCP
+from fastmcp.experimental.server.openapi.routing import MCPType
 from fastmcp.server.server import Transport
 
 from config.config import get_config
@@ -117,6 +120,16 @@ async def async_main(transport: Transport):
         )
 
 
+def openapi_route_map(route, mcp_type):
+    """Hide mutating catalog tools unless MCP_WRITE_TOOLS_ENABLED is set."""
+    if get_config().write_tools_enabled:
+        return None
+    description = getattr(route, "description", "") or ""
+    if "Side effects: this operation changes" in description:
+        return MCPType.EXCLUDE
+    return None
+
+
 async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, auth_token: str = "") -> FastMCP:
     # Create MCP server instance with authentication
     mcp = create_mcp_server(api_key, api_key_id, auth_token)
@@ -126,8 +139,12 @@ async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, au
 
     # Discover mcp components from openapi specs and import them
     spec = bundle_openapi_from_folders()
-    open_api_mcp = FastMCP.from_openapi(spec,
-                                        PAPIClient(get_papi_url(papi_url), get_papi_auth_headers(api_key, api_key_id)))
+    # Catalog calls include scans, exports, and XQL streams that outlive the 30s default.
+    open_api_mcp = FastMCP.from_openapi(
+        spec,
+        PAPIClient(get_papi_url(papi_url), get_papi_auth_headers(api_key, api_key_id), timeout=300),
+        route_map_fn=openapi_route_map,
+    )
     await mcp.import_server(server=open_api_mcp)
 
     return mcp

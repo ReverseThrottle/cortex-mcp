@@ -4,6 +4,7 @@ from typing import Annotated, Optional
 from fastmcp import Context, FastMCP
 from pydantic import Field
 
+from config.config import get_config
 from entities.exceptions import (
     PAPIAuthenticationError,
     PAPIClientError,
@@ -132,6 +133,8 @@ class EndpointActionsModule(BaseModule):
     """
 
     def register_tools(self):
+        if not get_config().isolate_endpoint_tool_enabled:
+            return
         self._add_tool(isolate_endpoint)
         self._add_tool(unisolate_endpoint)
 

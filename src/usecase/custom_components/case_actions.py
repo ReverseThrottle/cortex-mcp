@@ -4,6 +4,7 @@ from typing import Annotated, Optional
 from fastmcp import Context, FastMCP
 from pydantic import Field
 
+from config.config import get_config
 from entities.exceptions import (
     PAPIAuthenticationError,
     PAPIClientError,
@@ -112,7 +113,8 @@ class CaseActionsModule(BaseModule):
     """
 
     def register_tools(self):
-        self._add_tool(update_case)
+        if get_config().write_tools_enabled:
+            self._add_tool(update_case)
 
     def register_resources(self):
         pass

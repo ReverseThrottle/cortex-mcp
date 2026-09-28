@@ -148,8 +148,8 @@ All configuration is via environment variables (or a `.env` file in the project 
 
 | Variable | Default | Description |
 |---|---|---|
-| `MCP_WRITE_TOOLS_ENABLED` | `false` | Accepted for compatibility. It does not enable or disable tools. Mutating tools are registered, and each description states the side effect. |
-| `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED` | `false` | Accepted for compatibility. `isolate_endpoint` and `unisolate_endpoint` are registered either way. |
+| `MCP_WRITE_TOOLS_ENABLED` | `false` | When `true`, register tools that change tenant state. Read-only tools are always registered. Each mutating tool description states the side effect. |
+| `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED` | `false` | When `true`, register `isolate_endpoint` and `unisolate_endpoint`. |
 | `MCP_ELICITATION_ENABLED` | `false` | Enable MCP elicitation support |
 
 ### Optional — limits & logging
@@ -232,7 +232,7 @@ A health-check endpoint is also available at `GET /ping/` (unauthenticated).
 
 ## Available tools
 
-The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpanse, AgentiX, and XSOAR 8) plus the helpers below. Mutating tools are registered. `MCP_WRITE_TOOLS_ENABLED` and `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED` do not turn tools on or off. Every tool description states whether the call changes tenant state.
+The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpanse, AgentiX, and XSOAR 8) plus the helpers below. Read-only tools are always registered. Mutating tools are registered only when `MCP_WRITE_TOOLS_ENABLED=true`. `isolate_endpoint` and `unisolate_endpoint` are registered only when `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED=true`. Every tool description states whether the call changes tenant state, including when writes are enabled.
 
 ### Helpers
 
@@ -253,9 +253,9 @@ The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpans
 | `insert_script` | Upload a script YAML document. The server zips it for POST /public_api/v1/scripts/insert. Changes tenant state. |
 | `insert_playbook` | Upload a playbook YAML document. The server zips it for POST /public_api/v1/playbooks/insert. Changes tenant state. |
 
-### Public API catalog (507 additional tools)
+### Public API catalog (506 additional tools)
 
-The remaining tools are generated from the public API reference. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. The documented per-case update is separate from `update_case`.
+506 tools come from the public API reference, in addition to the helpers above. The list names every tool (520) registered when write and isolate tools are enabled. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. The documented per-case update is separate from `update_case`.
 
 <details>
 <summary>All tool names</summary>
@@ -726,7 +726,6 @@ The remaining tools are generated from the public API reference. `get_endpoints`
 - `post_settings_integration_fetch_history`
 - `post_settings_integration_reset_by_instance_id`
 - `post_settings_integration_search`
-- `post_settings_integration_searchidinstanceid`
 - `post_system_diagnostics_data_papi`
 - `post_tags_agents_assign`
 - `post_tags_agents_create`
