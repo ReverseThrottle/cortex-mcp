@@ -1,0 +1,30 @@
+name: Publish to PyPI
+
+# Version tag pushes publish the package with `poetry publish`.
+# Repository secret PYPI_API_TOKEN must be a PyPI API token.
+# A trusted publisher on PyPI can replace that secret later; this workflow
+# uses the token because `poetry publish` authenticates with it.
+on:
+  push:
+    tags:
+      - "v*"
+      - "[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Poetry
+        run: pip install poetry==2.2.0
+      - name: Publish
+        env:
+          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_API_TOKEN }}
+        run: poetry publish --build --no-interaction

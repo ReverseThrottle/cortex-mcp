@@ -120,6 +120,18 @@ cp .env.example .env
 poetry run python src/cli.py start
 ```
 
+### Option 3: pip or pipx
+
+```bash
+pip install cortex-mcp
+cortex-mcp start
+
+# or, without a virtualenv:
+pipx run cortex-mcp start
+```
+
+`cortex-mcp start` accepts the same flags as `python src/cli.py start` (`--api_key_id`, `--api_key_secret`, `--server-url`, `--log-level`). Publishing runs `poetry publish` when a version tag is pushed. The workflow reads the repository secret `PYPI_API_TOKEN` (a PyPI API token).
+
 ---
 
 ## Configuration

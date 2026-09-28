@@ -1,12 +1,34 @@
 [tool.poetry]
-name = "CortexMCP"
+name = "cortex-mcp"
 version = "1.0.2"
-description = ""
+description = "MCP server for Palo Alto Networks Cortex XSIAM and XDR"
 authors = []
 readme = "README.md"
-packages = [
-    { include = "src" }
+homepage = "https://github.com/ReverseThrottle/cortex-mcp"
+repository = "https://github.com/ReverseThrottle/cortex-mcp"
+keywords = ["mcp", "cortex", "xsiam", "xdr", "palo-alto"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Security",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
 ]
+packages = [
+    { include = "cli.py", from = "src" },
+    { include = "main.py", from = "src" },
+    { include = "version.py", from = "src" },
+    { include = "config", from = "src" },
+    { include = "entities", from = "src" },
+    { include = "pkg", from = "src" },
+    { include = "service", from = "src" },
+    { include = "usecase", from = "src" },
+]
+
+[tool.poetry.scripts]
+cortex-mcp = "cli:main_cli"
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
