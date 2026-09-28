@@ -45,6 +45,7 @@ def create_response(data: dict, is_error: bool = False) -> str:
     data["success"] = success
     return json.dumps(data, indent=2, ensure_ascii=False)
 
+
 def read_resource(file_path) -> str:
     """
     Read a file from the resources directory.
@@ -67,6 +68,7 @@ def read_resource(file_path) -> str:
                         insufficient permissions.
     """
     return read_file(file_path, RESOURCES_DIR)
+
 
 def read_file(file_path: str, file_directory: Path) -> str:
     """
@@ -118,6 +120,7 @@ def read_file(file_path: str, file_directory: Path) -> str:
         raise PermissionError(f"Access denied to resource file: {file_path}") from e
     except UnicodeDecodeError as e:
         raise ValueError(f"Unable to decode file {file_path}: {e}") from e
+
 
 def get_papi_auth_headers(api_key: str, api_key_id: str) -> dict:
     """
@@ -184,6 +187,7 @@ def bundle_openapi_from_folders():
     """
     openapi_dirs = [base_dir / "openapi" for base_dir in [BUILTINS_DIR, CUSTOM_DIR, REMOTE_DIR]]
     return bundle_openapi_files(*openapi_dirs)
+
 
 def bundle_openapi_files(*specs_dirs: Path) -> dict:
     """

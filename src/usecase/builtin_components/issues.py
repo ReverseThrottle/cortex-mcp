@@ -20,6 +20,7 @@ from usecase.fetcher import get_fetcher
 
 logger = logging.getLogger(__name__)
 
+
 async def get_issues_response() -> str:
     try:
         issues_json = read_resource("issues_response.json")
@@ -34,12 +35,21 @@ async def get_issues_response() -> str:
         logger.exception(f"Failed to read issues responses: {e}")
         return create_response(data={"error": str(e)}, is_error=True)
 
-async def get_issues(ctx: Context,
-                    filters: Annotated[list[dict], Field(description="Filters list to get the issues by. Leave empty go get all issues")],
-                    search_from: Annotated[int, Field(description="Marker for pagination starting point", default=0)] = 0,
-                    search_to: Annotated[int, Field(description="Marker for pagination ending point", default=30)] = 30,
-                    sort: Annotated[Optional[dict], Field(description="Dictionary of field and keyword to sort by. By default the sort is defined as observation time, desc")] = None,
-                    ) -> str:
+
+async def get_issues(
+    ctx: Context,
+    filters: Annotated[
+        list[dict], Field(description="Filters list to get the issues by. Leave empty go get all issues")
+    ],
+    search_from: Annotated[int, Field(description="Marker for pagination starting point", default=0)] = 0,
+    search_to: Annotated[int, Field(description="Marker for pagination ending point", default=30)] = 30,
+    sort: Annotated[
+        Optional[dict],
+        Field(
+            description="Dictionary of field and keyword to sort by. By default the sort is defined as observation time, desc"
+        ),
+    ] = None,
+) -> str:
     """
     Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/issue/search).
     Retrieves a list of issues or alerts from the Cortex platform.
@@ -71,7 +81,7 @@ async def get_issues(ctx: Context,
             Allowed fields are "id","observation_time","severity".
     Returns:
         JSON response containing issue data.
-      """
+    """
 
     payload = {
         "request_data": {
@@ -95,7 +105,14 @@ async def get_issues(ctx: Context,
         }
 
         return create_response(data=response_data)
-    except (PAPIConnectionError, PAPIAuthenticationError, PAPIServerError, PAPIClientRequestError, PAPIResponseError, PAPIClientError) as e:
+    except (
+        PAPIConnectionError,
+        PAPIAuthenticationError,
+        PAPIServerError,
+        PAPIClientRequestError,
+        PAPIResponseError,
+        PAPIClientError,
+    ) as e:
         logger.exception(f"PAPI error while getting issues: {e}")
         return create_response(data={"error": str(e)}, is_error=True)
     except Exception as e:
@@ -105,29 +122,31 @@ async def get_issues(ctx: Context,
 
 class IssuesModule(BaseModule):
     """
-       Module for managing and retrieving security issues and alerts from the Cortex platform.
+    Module for managing and retrieving security issues and alerts from the Cortex platform.
 
-       This module provides tools and resources for interacting with the Cortex platform's issue/alert system,
-       enabling users to search, filter, and paginate through security issues. It supports various filtering
-       criteria such as status, severity, time range, and custom search parameters.
+    This module provides tools and resources for interacting with the Cortex platform's issue/alert system,
+    enabling users to search, filter, and paginate through security issues. It supports various filtering
+    criteria such as status, severity, time range, and custom search parameters.
 
-       The module registers:
-       - Tools: get_issues - for retrieving filtered and paginated issue data
-       - Resources: issues_response.json - example API response for reference
+    The module registers:
+    - Tools: get_issues - for retrieving filtered and paginated issue data
+    - Resources: issues_response.json - example API response for reference
 
-       This module is essential for security monitoring, threat hunting, incident response,
-       and generating reports on detected security events within the Cortex platform.
-       """
+    This module is essential for security monitoring, threat hunting, incident response,
+    and generating reports on detected security events within the Cortex platform.
+    """
 
     def register_tools(self):
         self._add_tool(get_issues)
 
     def register_resources(self):
-        self._add_resource(get_issues_response, uri="resources://issues_response.json",
-    name="issues_response.json",
-    description="Example response from the issues API",
-    mime_type="application/json",)
+        self._add_resource(
+            get_issues_response,
+            uri="resources://issues_response.json",
+            name="issues_response.json",
+            description="Example response from the issues API",
+            mime_type="application/json",
+        )
 
     def __init__(self, mcp: FastMCP):
         super().__init__(mcp)
-

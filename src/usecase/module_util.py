@@ -11,6 +11,7 @@ from usecase.base_module import BaseModule
 
 logger = logging.getLogger(__name__)
 
+
 def discover_and_register_modules(mcp: FastMCP) -> list[BaseModule]:
     """
     Discover all Python files in usecase directories, find classes that implement BaseModule,
@@ -97,10 +98,7 @@ def _load_base_module_classes(python_file: Path) -> list[type[BaseModule]]:
 
     try:
         # Create a module spec from the file
-        spec = importlib_util.spec_from_file_location(
-            f"dynamic_module_{python_file.stem}",
-            python_file
-        )
+        spec = importlib_util.spec_from_file_location(f"dynamic_module_{python_file.stem}", python_file)
 
         if spec is None or spec.loader is None:
             return module_classes
@@ -115,9 +113,7 @@ def _load_base_module_classes(python_file: Path) -> list[type[BaseModule]]:
         # Find all classes in the module that inherit from BaseModule
         for _, obj in inspect.getmembers(module, inspect.isclass):
             # Check if it's a subclass of BaseModule but not BaseModule itself
-            if (issubclass(obj, BaseModule) and
-                    obj is not BaseModule and
-                    obj.__module__ == module.__name__):
+            if issubclass(obj, BaseModule) and obj is not BaseModule and obj.__module__ == module.__name__:
                 module_classes.append(obj)
 
     except Exception as e:
