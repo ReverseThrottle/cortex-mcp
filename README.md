@@ -160,6 +160,7 @@ All configuration is via environment variables (or a `.env` file in the project 
 | `LOG_ENABLE_UVICORN_ACCESS_LOGS` | `true` | Toggle uvicorn HTTP access logs |
 | `MAX_OBJECTS_TO_RETRIEVE` | `50` | Default page size for list operations |
 | `CORTEX_MCP_RESPONSE_ERROR_MAX_SIZE` | `1000` | Max characters of error detail returned to the LLM |
+| `CORTEX_MCP_MAX_RETRIES` | `3` | Extra attempts after the first request when the Cortex call fails to connect or returns HTTP 429 or 503 |
 
 ### Optional — on-appliance Broker VM
 
