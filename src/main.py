@@ -28,6 +28,7 @@ from fastmcp.server.server import Transport
 
 from config.config import get_config
 from pkg.client import PAPIClient
+from pkg.response_envelope import ResponseEnvelopeMiddleware
 from pkg.setup_logging import setup_logging
 from pkg.util import bundle_openapi_from_folders, get_papi_auth_headers, get_papi_url
 from pkg.write_confirmation import WriteConfirmationMiddleware
@@ -135,6 +136,8 @@ async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, au
     # Create MCP server instance with authentication
     mcp = create_mcp_server(api_key, api_key_id, auth_token)
     mcp.add_middleware(WriteConfirmationMiddleware())
+    # Added second so this middleware is outermost and envelopes the final tool result.
+    mcp.add_middleware(ResponseEnvelopeMiddleware())
 
     # Discover mcp components from modules
     discover_and_register_modules(mcp)

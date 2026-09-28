@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from pkg.openapi.openapi import bundle_specs
+from pkg.response_envelope import ensure_formatting_metadata
 
 MAIN_DIR = Path(__file__).parent.parent.parent
 SCRIPT_DIR = MAIN_DIR / "src"
@@ -28,9 +29,10 @@ def create_response(data: dict, is_error: bool = False) -> str:
                                  Defaults to False.
 
     Returns:
-        str: A JSON string containing the data with an added 'success' field.
-             The JSON is formatted with 2-space indentation and non-ASCII
-             characters are preserved.
+        str: A JSON string containing the data with an added 'success' field
+             and '_metadata.formatting_instructions' when the tool did not
+             already set that hint. The JSON is formatted with 2-space
+             indentation and non-ASCII characters are preserved.
 
     Example:
         >>> data = {"message": "Operation completed", "count": 5}
@@ -43,6 +45,7 @@ def create_response(data: dict, is_error: bool = False) -> str:
     """
     success = "true" if not is_error else "false"
     data["success"] = success
+    ensure_formatting_metadata(data)
     return json.dumps(data, indent=2, ensure_ascii=False)
 
 def read_resource(file_path) -> str:
