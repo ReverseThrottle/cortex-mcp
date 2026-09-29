@@ -138,6 +138,12 @@ All configuration is via environment variables (or a `.env` file in the project 
 | `CORTEX_MCP_PAPI_AUTH_HEADER` | Your API key secret |
 | `CORTEX_MCP_PAPI_AUTH_ID` | Numeric ID of the API key |
 
+### Optional — API key type
+
+| Variable | Default | Description |
+|---|---|---|
+| `CORTEX_MCP_PAPI_KEY_TYPE` | `standard` | `advanced` sends `SHA256(key + nonce + timestamp)` plus `x-xdr-nonce` and `x-xdr-timestamp` on every request. The raw key is not sent. |
+
 ### Optional — transport
 
 | Variable | Default | Description |
@@ -842,6 +848,7 @@ python src/cli.py start \
   --api_key_id 12345 \
   --api_key_secret "your-secret" \
   --server-url "https://api-acme.xdr.us.paloaltonetworks.com" \
+  --key-type standard \
   --log-level INFO
 ```
 

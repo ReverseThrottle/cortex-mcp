@@ -27,7 +27,8 @@ def _client(handler, monkeypatch, max_retries: int = 3) -> PAPIClient:
     monkeypatch.setattr(PAPIClient, "_pause_before_retry", _no_wait)
     return PAPIClient(
         "https://api.example.invalid",
-        {"Authorization": "tenant-secret", "x-xdr-auth-id": "42"},
+        "tenant-secret",
+        "42",
         transport=httpx.MockTransport(handler),
     )
 
@@ -185,7 +186,8 @@ async def test_retry_keeps_per_request_timeout(monkeypatch):
 
     client = PAPIClient(
         "https://api.example.invalid",
-        {"Authorization": "tenant-secret", "x-xdr-auth-id": "42"},
+        "tenant-secret",
+        "42",
         timeout=30,
         transport=httpx.MockTransport(handler),
     )

@@ -4,6 +4,7 @@ import json
 import logging
 import random
 from json import JSONDecodeError
+from typing import Literal, assert_never
 
 import httpx
 from httpx import ConnectError, RequestError, TimeoutException
@@ -17,6 +18,7 @@ from entities.exceptions import (
     PAPIResponseError,
     PAPIServerError,
 )
+from pkg.util import get_papi_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -87,38 +89,52 @@ def _status_exception(url: str, status_code: int, body: str) -> PAPIClientError:
 
 
 class PAPIClient(httpx.AsyncClient):
-    def __init__(self, base_url: str, headers: dict[str, str], timeout: int = 30, **kwargs):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        api_key_id: str,
+        key_type: Literal["standard", "advanced"] = "standard",
+        timeout: int = 30,
+        **kwargs,
+    ):
         """
         Initialize PAPIClient as an AsyncClient.
 
-        Args:
-            base_url (str): Base URL for the PAPI server
-            headers (dict): default headers for PAPI
-            timeout (int): Request timeout in seconds
-            **kwargs: Additional arguments passed to httpx.AsyncClient
+        Auth headers are computed in send(). Advanced keys need a fresh nonce and
+        timestamp on every request, including each retry, and FastMCP calls send() directly.
         """
-        # Set default timeout if not provided in kwargs
+        self._api_key = api_key
+        self._api_key_id = str(api_key_id)
+        self._key_type = key_type
+
         if "timeout" not in kwargs:
             kwargs["timeout"] = timeout
 
-        super().__init__(base_url=base_url, headers=headers, **kwargs)
+        super().__init__(base_url=base_url, headers={"X-IS-MCP": "true"}, **kwargs)
 
-        # FastMCP's OpenAPI tool machinery forwards the *inbound* MCP client's HTTP
-        # headers onto outbound tool requests with highest precedence (both the
-        # legacy and experimental parsers do this, for pass-through-auth use cases).
-        # That clobbers our own Authorization/X-XDR-AUTH-ID headers whenever an MCP
-        # client authenticates to this server with `Authorization: Bearer <token>`.
-        # Keep a copy so send() can re-assert the real PAPI credentials right before
-        # the request goes out, regardless of what upstream merged into it.
-        self._papi_headers = dict(headers)
+    def _auth_header_names(self) -> set[str]:
+        match self._key_type:
+            case "advanced":
+                return {"authorization", "x-xdr-auth-id", "x-xdr-nonce", "x-xdr-timestamp"}
+            case "standard":
+                return {"authorization", "x-xdr-auth-id"}
+            case _:
+                assert_never(self._key_type)
 
-    def _apply_tenant_headers(self, request: httpx.Request) -> None:
-        tenant_headers = {key.lower(): key for key in self._papi_headers}
+    def _strip_untrusted_headers(self, request: httpx.Request) -> None:
+        # FastMCP copies the inbound MCP client's headers onto the outbound request.
+        # Drop those, including a spoofed bearer, and keep content headers. Auth
+        # names stay so send() can overwrite them with a fresh signature.
+        kept = self._auth_header_names()
         for key in list(request.headers.keys()):
             lowered = key.lower()
-            if lowered not in _PASSTHROUGH_HEADERS and lowered not in tenant_headers:
+            if lowered not in _PASSTHROUGH_HEADERS and lowered not in kept:
                 del request.headers[key]
-        for key, value in self._papi_headers.items():
+
+    def _apply_auth_headers(self, request: httpx.Request) -> None:
+        auth_headers = get_papi_auth_headers(self._api_key, self._api_key_id, self._key_type)
+        for key, value in auth_headers.items():
             request.headers[key] = value
 
     def _clone_request(self, request: httpx.Request) -> httpx.Request:
@@ -137,12 +153,15 @@ class PAPIClient(httpx.AsyncClient):
 
     async def send(self, request: httpx.Request, **kwargs) -> httpx.Response:
         await request.aread()
-        self._apply_tenant_headers(request)
+        # Sign after cloning the unsigned template. A 429/503 that reached the
+        # tenant consumes the nonce, so each attempt needs its own advanced hash.
+        self._strip_untrusted_headers(request)
         template = self._clone_request(request)
         max_retries = get_config().max_retries
         attempt = 0
         while True:
             outgoing = request if attempt == 0 else self._clone_request(template)
+            self._apply_auth_headers(outgoing)
             try:
                 response = await super().send(outgoing, **kwargs)
             except (ConnectError, TimeoutException, RequestError) as exc:
@@ -254,7 +273,7 @@ class PAPIClient(httpx.AsyncClient):
                 - Programming errors or edge cases
 
         Example:
-            >>> async with PAPIClient("https://api.example.com", {"Authorization": "XXX"}) as client:
+            >>> async with PAPIClient("https://api.example.com", "api-key", "api-key-id") as client:
             ...     try:
             ...         result = await client.request("GET", "/endpoints")
             ...     except PAPIAuthenticationError:

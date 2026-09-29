@@ -8,7 +8,7 @@ from fastmcp import Context
 from config.config import get_config
 from entities.MCPContext import MCPContext
 from pkg.client import PAPIClient
-from pkg.util import get_papi_auth_headers, get_papi_url
+from pkg.util import get_papi_url
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,13 @@ class Fetcher:
     Fetcher class for interacting with public API endpoints.
     """
 
-    def __init__(self, url: str, api_key: str, api_key_id: str) -> None:
+    def __init__(
+        self,
+        url: str,
+        api_key: str,
+        api_key_id: str,
+        key_type: Literal["standard", "advanced"] = "standard",
+    ) -> None:
         """
         Initialize the Fetcher with a URL and an API key for authentication.
 
@@ -26,10 +32,12 @@ class Fetcher:
             url (str): The url of the public API.
             api_key (str): The API key to use with the public API
             api_key_id (str): The API key ID to use with the public API
+            key_type: "standard" or "advanced", matching the Cortex API key type.
         """
         self.url = url
         self.api_key = api_key
         self.api_key_id = api_key_id
+        self.key_type = key_type
 
     @overload
     async def send_request(
@@ -112,9 +120,14 @@ class Fetcher:
             if "/public_api/v1" not in path and "/public_api/v1/" not in path:
                 path = posixpath.join("/public_api/v1", path.lstrip("/"))
 
-        headers = get_papi_auth_headers(self.api_key, self.api_key_id)
         result: dict[str, Any] | io.BytesIO | bytes
-        async with PAPIClient(self.url, headers, timeout=timeout or 30) as client:
+        async with PAPIClient(
+            self.url,
+            self.api_key,
+            self.api_key_id,
+            key_type=self.key_type,
+            timeout=timeout or 30,
+        ) as client:
             if raw:
                 result = await client.request(
                     method, path, json=data if isinstance(data, dict) else None, headers=headers, raw=True
@@ -157,6 +170,6 @@ async def get_fetcher(ctx: Context) -> Fetcher:
         xdr_id = config.papi_auth_id_key
 
     logger.info("Creating a new Cortex API fetcher")
-    fetcher = Fetcher(url, api_key, xdr_id)
+    fetcher = Fetcher(url, api_key, xdr_id, key_type=config.papi_key_type)
     ctx.set_state("fetcher", fetcher)
     return fetcher

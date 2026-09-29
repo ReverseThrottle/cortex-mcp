@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,6 +28,7 @@ class Settings(BaseSettings):
     papi_url_env_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_URL")
     papi_auth_header_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_AUTH_HEADER")
     papi_auth_id_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_AUTH_ID")
+    papi_key_type: Literal["standard", "advanced"] = Field("standard", validation_alias="CORTEX_MCP_PAPI_KEY_TYPE")
     broker_url: str = Field("", validation_alias="CORTEX_MCP_BROKER_URL")
     broker_factory_password: str = Field("", validation_alias="CORTEX_MCP_BROKER_FACTORY_PASSWORD")
 

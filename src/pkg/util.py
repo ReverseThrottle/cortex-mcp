@@ -1,5 +1,10 @@
+import hashlib
 import json
+import secrets
+import string
+import time
 from pathlib import Path
+from typing import Literal, assert_never
 
 from pkg.openapi.openapi import bundle_specs
 
@@ -122,21 +127,35 @@ def read_file(file_path: str, file_directory: Path) -> str:
         raise ValueError(f"Unable to decode file {file_path}: {e}") from e
 
 
-def get_papi_auth_headers(api_key: str, api_key_id: str) -> dict:
+def get_papi_auth_headers(
+    api_key: str,
+    api_key_id: str,
+    key_type: Literal["standard", "advanced"] = "standard",
+) -> dict:
     """
-    Generate authentication headers for Palo Alto Networks API requests.
+    Generate authentication headers for Palo Alto Networks Cortex API requests.
 
-    Args:
-        api_key (str): The API key for authentication.
-        api_key_id (str): The API key ID for authentication.
-
-    Returns:
-        dict: A dictionary containing the required authentication headers.
+    Standard keys send the raw key. Advanced keys send SHA256(api_key + nonce + timestamp)
+    and must be computed again for every request.
     """
-    return {
-        "Authorization": api_key,
-        "X-XDR-AUTH-ID": api_key_id,
-    }
+    match key_type:
+        case "advanced":
+            nonce = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(64))
+            timestamp = str(int(time.time()) * 1000)
+            auth_key = f"{api_key}{nonce}{timestamp}".encode()
+            return {
+                "Authorization": hashlib.sha256(auth_key).hexdigest(),
+                "x-xdr-auth-id": str(api_key_id),
+                "x-xdr-nonce": nonce,
+                "x-xdr-timestamp": timestamp,
+            }
+        case "standard":
+            return {
+                "Authorization": api_key,
+                "X-XDR-AUTH-ID": str(api_key_id),
+            }
+        case _:
+            assert_never(key_type)
 
 
 def get_papi_url(papi_url_value: str) -> str:

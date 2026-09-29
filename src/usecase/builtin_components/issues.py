@@ -21,6 +21,21 @@ from usecase.fetcher import get_fetcher
 logger = logging.getLogger(__name__)
 
 
+def _coerce_issue_id(value: object) -> int:
+    """Coerce an issue id to int. Booleans and fractional numbers are rejected."""
+    if isinstance(value, bool):
+        raise TypeError("boolean is not an integer issue id")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError("fractional issue id")
+        return int(value)
+    if isinstance(value, str):
+        return int(value)
+    raise TypeError(f"unsupported issue id type: {type(value).__name__}")
+
+
 async def get_issues_response() -> str:
     try:
         issues_json = read_resource("issues_response.json")
@@ -92,7 +107,21 @@ async def get_issues(
     if filters:
         for f in filters:
             if f.get("field") == "id":
-                f["value"] = [int(v) for v in f["value"]]  # Ensure id values are integers
+                raw_value = f.get("value")
+                if not isinstance(raw_value, list):
+                    raw_value = [raw_value]
+                try:
+                    f["value"] = [_coerce_issue_id(v) for v in raw_value]
+                except (TypeError, ValueError) as e:
+                    return create_response(
+                        data={
+                            "error": (
+                                f"Invalid 'id' filter value {f.get('value')!r}: "
+                                f"must be an integer or list of integers ({e})"
+                            )
+                        },
+                        is_error=True,
+                    )
         payload["request_data"]["filters"] = filters
     if sort:
         payload["request_data"]["sort"] = sort

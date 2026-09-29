@@ -37,7 +37,8 @@ async def test_multipart_request_keeps_tenant_auth_and_drops_json_content_type()
 
     client = PAPIClient(
         "https://api.example.invalid",
-        {"Authorization": "tenant-secret", "x-xdr-auth-id": "42"},
+        "tenant-secret",
+        "42",
         transport=httpx.MockTransport(handler),
     )
     result = await client.request(
