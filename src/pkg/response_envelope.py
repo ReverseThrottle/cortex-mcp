@@ -9,27 +9,55 @@ from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
 
 
 def ensure_formatting_metadata(payload: dict) -> dict:
-    """Add shared formatting instructions without replacing metadata a tool already set."""
-    metadata = payload.get("_metadata")
-    if isinstance(metadata, dict):
-        metadata = dict(metadata)
-    else:
-        metadata = {}
-    metadata.setdefault("formatting_instructions", LLM_FORMATTING_BASE_INSTRUCTIONS)
-    payload["_metadata"] = metadata
+    """Add shared formatting instructions without replacing metadata a tool already set.
+
+    Dict ``_metadata`` is copied and gains ``formatting_instructions`` only when
+    that key is absent. Any other existing ``_metadata`` value stays as the tool
+    set it.
+    """
+    if "_metadata" not in payload:
+        payload["_metadata"] = {"formatting_instructions": LLM_FORMATTING_BASE_INSTRUCTIONS}
+        return payload
+    metadata = payload["_metadata"]
+    if not isinstance(metadata, dict):
+        return payload
+    copied = dict(metadata)
+    copied.setdefault("formatting_instructions", LLM_FORMATTING_BASE_INSTRUCTIONS)
+    payload["_metadata"] = copied
     return payload
+
+
+def _fastmcp_wrapped_array(value: dict) -> list | None:
+    """Return the list when FastMCP stored a top-level JSON array as ``{"result": [...]}``.
+
+    OpenAPI tools with no output schema wrap a non-object body before middleware
+    runs. An array is the only wrapped body this envelope rewrites. A Cortex
+    object that has other fields, including its own ``result`` list, is left as
+    an object.
+    """
+    if list(value) != ["result"]:
+        return None
+    body = value["result"]
+    if isinstance(body, list):
+        return body
+    return None
 
 
 def apply_response_envelope(value: Any) -> Any:
     """Attach formatting metadata without rewriting Cortex field values.
 
     JSON objects keep every existing field, including timestamps and ``success``.
-    A JSON array cannot carry ``_metadata``, so it is wrapped as
-    ``{"data", "total", "_metadata"}``. Other JSON values stay as they are.
-    ``total`` and ``pagination`` are not invented for objects: Cortex endpoints
-    do not share one pagination shape.
+    A top-level JSON array cannot carry ``_metadata``, so it becomes
+    ``{"data", "total", "_metadata"}``. FastMCP already wraps that array as
+    ``{"result": [...]}``; that object uses the same ``data`` / ``total``
+    envelope. Other JSON values stay as they are. ``total`` and ``pagination``
+    are not added to objects, because Cortex endpoints do not share one
+    pagination shape.
     """
     if isinstance(value, dict):
+        wrapped = _fastmcp_wrapped_array(value)
+        if wrapped is not None:
+            return ensure_formatting_metadata({"data": wrapped, "total": len(wrapped)})
         return ensure_formatting_metadata(dict(value))
     if isinstance(value, list):
         return ensure_formatting_metadata({"data": value, "total": len(value)})
