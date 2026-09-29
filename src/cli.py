@@ -26,6 +26,7 @@ logger = logging.getLogger("CORTEX MCP CLI")
 
 # --- CLI Setup Functions ---
 
+
 def setup_api_arguments(subparser: argparse.ArgumentParser):
     """
     Add API-related arguments to a subparser.
@@ -34,22 +35,28 @@ def setup_api_arguments(subparser: argparse.ArgumentParser):
         subparser: The argparse subparser to add arguments to
     """
     subparser.add_argument(
-        '--api_key_id',
+        "--api_key_id",
         type=int,
         default=config.papi_auth_id_key,
-        help='The ID of the api key (default: environment variable: CORTEX_MCP_PAPI_AUTH_ID).'
+        help="The ID of the api key (default: environment variable: CORTEX_MCP_PAPI_AUTH_ID).",
     )
     subparser.add_argument(
-        '--api_key_secret',
+        "--api_key_secret",
         type=str,
         default=config.papi_auth_header_key,
-        help='The API key (default: environment variable: CORTEX_MCP_PAPI_AUTH_HEADER).'
+        help="The API key (default: environment variable: CORTEX_MCP_PAPI_AUTH_HEADER).",
     )
     subparser.add_argument(
-        '--server-url',
+        "--server-url",
         type=str,
         default=config.papi_url_env_key,
-        help='The server url (default: environment variable: CORTEX_MCP_PAPI_URL).'
+        help="The server url (default: environment variable: CORTEX_MCP_PAPI_URL).",
+    )
+    subparser.add_argument(
+        "--key-type",
+        choices=["standard", "advanced"],
+        default=None,
+        help="API key type: 'standard' (default) or 'advanced' (default: environment variable: CORTEX_MCP_PAPI_KEY_TYPE).",
     )
 
 
@@ -62,7 +69,7 @@ def setup_commands(subparsers: argparse._SubParsersAction):
         subparsers: The argparse subparsers object to add commands to
     """
     # --- 'start' command ---
-    start_parser: argparse.ArgumentParser = subparsers.add_parser('start', help='Start the MCP server.')
+    start_parser: argparse.ArgumentParser = subparsers.add_parser("start", help="Start the MCP server.")
     setup_api_arguments(start_parser)
     start_parser.add_argument(
         "--log-level",
@@ -74,22 +81,23 @@ def setup_commands(subparsers: argparse._SubParsersAction):
     start_parser.set_defaults(func=start_server)
 
     # --- 'update' command ---
-    update_parser: argparse.ArgumentParser = subparsers.add_parser('update',
-                                                                   help='Update a folder containing cortex content (default is remote_tools folder).')
+    update_parser: argparse.ArgumentParser = subparsers.add_parser(
+        "update", help="Update a folder containing cortex content (default is remote_tools folder)."
+    )
     setup_api_arguments(update_parser)
 
     update_parser.add_argument(
-        '--folder',
+        "--folder",
         default=config.update_folder,
         type=str,
-        help='The path to the content folder to be updated (default: environment variable: CORTEX_MCP_UPDATE_FOLDER).'
+        help="The path to the content folder to be updated (default: environment variable: CORTEX_MCP_UPDATE_FOLDER).",
     )
     update_parser.set_defaults(func=update_tools)
 
     # --- 'version' command ---
-    version_parser: argparse.ArgumentParser = subparsers.add_parser('version',
-                                                                   help='display version information.')
+    version_parser: argparse.ArgumentParser = subparsers.add_parser("version", help="display version information.")
     version_parser.set_defaults(func=display_version)
+
 
 def setup_env(args: argparse.Namespace):
     """
@@ -103,22 +111,31 @@ def setup_env(args: argparse.Namespace):
     """
     # Validate required API key arguments
     if not args.api_key_id:
-        logger.error("[Python] Error: API key ID is required. Please provide --api_key_id or set CORTEX_MCP_PAPI_AUTH_ID environment variable.")
+        logger.error(
+            "[Python] Error: API key ID is required. Please provide --api_key_id or set CORTEX_MCP_PAPI_AUTH_ID environment variable."
+        )
         sys.exit(1)
     os.environ["CORTEX_MCP_PAPI_AUTH_ID"] = str(args.api_key_id)
 
     if not args.api_key_secret:
-        logger.error("[Python] Error: API key is required. Please provide --api_key_secret or set CORTEX_MCP_PAPI_AUTH_HEADER environment variable.")
+        logger.error(
+            "[Python] Error: API key is required. Please provide --api_key_secret or set CORTEX_MCP_PAPI_AUTH_HEADER environment variable."
+        )
         sys.exit(1)
     os.environ["CORTEX_MCP_PAPI_AUTH_HEADER"] = args.api_key_secret
 
     if not args.server_url:
-        logger.error("[Python] Error: PAPI Server URL is required. Please provide --server_url or set CORTEX_MCP_PAPI_URL environment variable.")
+        logger.error(
+            "[Python] Error: PAPI Server URL is required. Please provide --server_url or set CORTEX_MCP_PAPI_URL environment variable."
+        )
         sys.exit(1)
     os.environ["CORTEX_MCP_PAPI_URL"] = args.server_url
 
     if hasattr(args, "log_level") and args.log_level:
         os.environ["LOG_LEVEL"] = args.log_level
+
+    if hasattr(args, "key_type") and args.key_type:
+        os.environ["CORTEX_MCP_PAPI_KEY_TYPE"] = args.key_type
 
     if hasattr(args, "folder") and args.folder:
         os.environ["CORTEX_MCP_UPDATE_FOLDER"] = args.folder
@@ -135,17 +152,19 @@ def parse_args() -> argparse.Namespace:
         Parsed command line arguments
     """
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        prog='mcp_cli',
-        description='A command-line interface for managing the Cortex MCP application.',
-        epilog='For help with a specific command, type: mcp_cli <command> --help'
+        prog="mcp_cli",
+        description="A command-line interface for managing the Cortex MCP application.",
+        epilog="For help with a specific command, type: mcp_cli <command> --help",
     )
-    subparsers: argparse._SubParsersAction = parser.add_subparsers(dest='command', required=True,
-                                                                   help='Available commands')
+    subparsers: argparse._SubParsersAction = parser.add_subparsers(
+        dest="command", required=True, help="Available commands"
+    )
     setup_commands(subparsers)
     return parser.parse_args()
 
 
 # --- Action Implementations ---
+
 
 async def start_server(args: argparse.Namespace):
     """
@@ -155,7 +174,9 @@ async def start_server(args: argparse.Namespace):
         args: Parsed command line arguments
     """
     setup_env(args)
-    logger.info("--- Starting MCP Server ---",)
+    logger.info(
+        "--- Starting MCP Server ---",
+    )
     try:
         await async_main(config.mcp_transport)
     except asyncio.CancelledError:
@@ -167,6 +188,7 @@ async def start_server(args: argparse.Namespace):
 
 
 # --- Update Folder Helper Functions ---
+
 
 async def download_update_package() -> str:
     """
@@ -186,24 +208,24 @@ async def download_update_package() -> str:
     fetcher: Fetcher = Fetcher(
         url=url,
         api_key_id=config.papi_auth_id_key,
-        api_key=config.papi_auth_header_key
+        api_key=config.papi_auth_header_key,
+        key_type=config.papi_key_type,
     )
 
     # Send POST request to download the zip file
     response: io.BytesIO = await fetcher.send_request(
-        path=download_endpoint,
-        data=json.dumps({"request_data": {"is_update": True}}),
-        stream=True
+        path=download_endpoint, data=json.dumps({"request_data": {"is_update": True}}), stream=True
     )
 
     logger.info("[Python] Download successful. Saving to temporary file...")
 
     # Create a temporary file to store the downloaded zip
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as temp_zip:
         temp_zip_path: str = temp_zip.name
         temp_zip.write(response.read())
 
     return temp_zip_path
+
 
 def safe_extract(zip_ref: zipfile.ZipFile, extract_to: str):
     """
@@ -218,6 +240,7 @@ def safe_extract(zip_ref: zipfile.ZipFile, extract_to: str):
         if os.path.isabs(member.filename) or ".." in member.filename:
             raise ValueError(f"Unsafe path: {member.filename}")
     zip_ref.extractall(extract_to)
+
 
 def extract_remote_tools(zip_path: str) -> tuple[str, str]:
     """
@@ -239,7 +262,7 @@ def extract_remote_tools(zip_path: str) -> tuple[str, str]:
     temp_extract_dir: str = tempfile.mkdtemp()
 
     # Extract the zip file to temporary directory
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
         safe_extract(zip_ref, temp_extract_dir)
 
     # Define the known path to remote tools in the extracted content
@@ -247,7 +270,8 @@ def extract_remote_tools(zip_path: str) -> tuple[str, str]:
 
     if not os.path.exists(extracted_remote_tools_path):
         raise FileNotFoundError(
-            f"Could not find remote_tools directory at expected path: {extracted_remote_tools_path}")
+            f"Could not find remote_tools directory at expected path: {extracted_remote_tools_path}"
+        )
 
     logger.info(f"[Python] Found remote_tools directory at: {extracted_remote_tools_path}")
     return temp_extract_dir, extracted_remote_tools_path
@@ -316,10 +340,10 @@ def show_updated_contents(target_path: str):
     """
     logger.info("\n[Shell] Listing contents of the updated remote_tools directory...")
     try:
-        if sys.platform == 'win32':
-            subprocess.run(['dir', target_path], shell=True, check=True)
+        if sys.platform == "win32":
+            subprocess.run(["dir", target_path], shell=True, check=True)
         else:
-            subprocess.run(['ls', '-l', target_path], check=True)
+            subprocess.run(["ls", "-l", target_path], check=True)
     except subprocess.CalledProcessError as e:
         logger.error(f"[Python] Error: A shell command failed with exit code {e.returncode}.")
     except FileNotFoundError:
@@ -394,7 +418,7 @@ async def update_tools(args: argparse.Namespace):
 
     except requests.exceptions.RequestException as e:
         logger.error(f"[Python] Error: Failed to download content from API: {e}")
-        if hasattr(e, 'response') and e.response is not None:
+        if hasattr(e, "response") and e.response is not None:
             logger.error(f"[Python] HTTP Status Code: {e.response.status_code}")
             logger.error(f"[Python] Response: {e.response.text}")
     except zipfile.BadZipFile:
@@ -407,8 +431,10 @@ async def update_tools(args: argparse.Namespace):
         # Always clean up temporary files
         cleanup_temp_files(temp_zip_path, temp_extract_dir)
 
+
 async def display_version(_: argparse.Namespace):
     logger.info(f"[Python] Cortex MCP Server Version: {__version__}")
+
 
 def main_cli():
     """
@@ -425,6 +451,5 @@ def main_cli():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main_cli()
-

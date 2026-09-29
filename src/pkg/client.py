@@ -1,6 +1,10 @@
+import asyncio
 import io
+import json
 import logging
+import random
 from json import JSONDecodeError
+from typing import Literal, assert_never
 
 import httpx
 from httpx import ConnectError, RequestError, TimeoutException
@@ -14,6 +18,7 @@ from entities.exceptions import (
     PAPIResponseError,
     PAPIServerError,
 )
+from pkg.util import get_papi_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -29,72 +34,196 @@ _PASSTHROUGH_HEADERS = {
     "x-is-mcp",
 }
 
+# Confirmed full jitter: sleep a uniform value in [0, min(cap, base * 2**attempt)].
+# The failed attempt starts at 0, so the first retry sleeps in [0, base].
+_RETRY_STATUS_CODES = {429, 503}
+_RETRY_BASE_SECONDS = 0.5
+_RETRY_CAP_SECONDS = 8.0
+
+
+def _backoff_seconds(attempt: int) -> float:
+    ceiling = min(_RETRY_CAP_SECONDS, _RETRY_BASE_SECONDS * (2**attempt))
+    return random.uniform(0, ceiling)
+
+
+def _cortex_error_code(body: str) -> int | str | None:
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    reply = payload.get("reply")
+    # A JSON null reply code is absent. Fall through to a sibling top-level code.
+    if isinstance(reply, dict) and "err_code" in reply and reply["err_code"] is not None:
+        code = reply["err_code"]
+    elif "err_code" in payload:
+        code = payload["err_code"]
+    else:
+        return None
+    if isinstance(code, bool) or not isinstance(code, int | str):
+        return None
+    return code
+
+
+def _status_exception(url: str, status_code: int, body: str) -> PAPIClientError:
+    code = _cortex_error_code(body)
+    code_text = f", Cortex error code {code}" if code is not None else ""
+    detail = f"(HTTP {status_code}{code_text})"
+    if status_code == 401:
+        message = f"Authentication failed for request to {url} {detail}: {body}"
+        error: PAPIClientError = PAPIAuthenticationError(message, status_code=status_code, cortex_error_code=code)
+    elif status_code == 403:
+        message = f"Authorization failed for request to {url} {detail}: {body}"
+        error = PAPIAuthenticationError(message, status_code=status_code, cortex_error_code=code)
+    elif 400 <= status_code < 500:
+        message = f"Client error for request to {url}: {body} {detail}"
+        error = PAPIClientRequestError(message, status_code=status_code, cortex_error_code=code)
+    elif 500 <= status_code < 600:
+        message = f"Server error for request to {url}: {body} {detail}"
+        error = PAPIServerError(message, status_code=status_code, cortex_error_code=code)
+    else:
+        message = f"Unexpected response code for request to {url}: {body} {detail}"
+        error = PAPIResponseError(message, status_code=status_code, cortex_error_code=code)
+    return error
+
 
 class PAPIClient(httpx.AsyncClient):
-    def __init__(self, base_url: str, headers: dict[str, str], timeout: int = 30, **kwargs):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        api_key_id: str,
+        key_type: Literal["standard", "advanced"] = "standard",
+        timeout: int = 30,
+        **kwargs,
+    ):
         """
         Initialize PAPIClient as an AsyncClient.
 
-        Args:
-            base_url (str): Base URL for the PAPI server
-            headers (dict): default headers for PAPI
-            timeout (int): Request timeout in seconds
-            **kwargs: Additional arguments passed to httpx.AsyncClient
+        Auth headers are computed in send(). Advanced keys need a fresh nonce and
+        timestamp on every request, including each retry, and FastMCP calls send() directly.
         """
-        # Set default timeout if not provided in kwargs
-        if 'timeout' not in kwargs:
-            kwargs['timeout'] = timeout
+        self._api_key = api_key
+        self._api_key_id = str(api_key_id)
+        self._key_type = key_type
 
-        super().__init__(base_url=base_url, headers=headers, **kwargs)
+        if "timeout" not in kwargs:
+            kwargs["timeout"] = timeout
 
-        # FastMCP's OpenAPI tool machinery forwards the *inbound* MCP client's HTTP
-        # headers onto outbound tool requests with highest precedence (both the
-        # legacy and experimental parsers do this, for pass-through-auth use cases).
-        # That clobbers our own Authorization/X-XDR-AUTH-ID headers whenever an MCP
-        # client authenticates to this server with `Authorization: Bearer <token>`.
-        # Keep a copy so send() can re-assert the real PAPI credentials right before
-        # the request goes out, regardless of what upstream merged into it.
-        self._papi_headers = dict(headers)
+        super().__init__(base_url=base_url, headers={"X-IS-MCP": "true"}, **kwargs)
 
-    async def send(self, request: httpx.Request, **kwargs) -> httpx.Response:
-        tenant_headers = {key.lower(): key for key in self._papi_headers}
+    def _auth_header_names(self) -> set[str]:
+        match self._key_type:
+            case "advanced":
+                return {"authorization", "x-xdr-auth-id", "x-xdr-nonce", "x-xdr-timestamp"}
+            case "standard":
+                return {"authorization", "x-xdr-auth-id"}
+            case _:
+                assert_never(self._key_type)
+
+    def _strip_untrusted_headers(self, request: httpx.Request) -> None:
+        # FastMCP copies the inbound MCP client's headers onto the outbound request.
+        # Drop those, including a spoofed bearer, and keep content headers. Auth
+        # names stay so send() can overwrite them with a fresh signature.
+        kept = self._auth_header_names()
         for key in list(request.headers.keys()):
             lowered = key.lower()
-            if lowered not in _PASSTHROUGH_HEADERS and lowered not in tenant_headers:
+            if lowered not in _PASSTHROUGH_HEADERS and lowered not in kept:
                 del request.headers[key]
-        for key, value in self._papi_headers.items():
-            request.headers[key] = value
-        return await super().send(request, **kwargs)
 
+    def _apply_auth_headers(self, request: httpx.Request) -> None:
+        auth_headers = get_papi_auth_headers(self._api_key, self._api_key_id, self._key_type)
+        for key, value in auth_headers.items():
+            request.headers[key] = value
+
+    def _clone_request(self, request: httpx.Request) -> httpx.Request:
+        # httpx keeps the per-request timeout in extensions. A retry that drops
+        # it falls back to the client timeout.
+        return httpx.Request(
+            method=request.method,
+            url=request.url,
+            headers=httpx.Headers(request.headers),
+            content=bytes(request.content),
+            extensions=dict(request.extensions),
+        )
+
+    async def _pause_before_retry(self, attempt: int) -> None:
+        await asyncio.sleep(_backoff_seconds(attempt))
+
+    async def send(self, request: httpx.Request, **kwargs) -> httpx.Response:
+        await request.aread()
+        # Sign after cloning the unsigned template. A 429/503 that reached the
+        # tenant consumes the nonce, so each attempt needs its own advanced hash.
+        self._strip_untrusted_headers(request)
+        template = self._clone_request(request)
+        max_retries = get_config().max_retries
+        attempt = 0
+        while True:
+            outgoing = request if attempt == 0 else self._clone_request(template)
+            self._apply_auth_headers(outgoing)
+            try:
+                response = await super().send(outgoing, **kwargs)
+            except (ConnectError, TimeoutException, RequestError) as exc:
+                if attempt >= max_retries:
+                    raise
+                logger.warning(
+                    "Retrying %s %s after %s (retry %s of %s)",
+                    outgoing.method,
+                    outgoing.url,
+                    type(exc).__name__,
+                    attempt + 1,
+                    max_retries,
+                )
+                await self._pause_before_retry(attempt)
+                attempt += 1
+                continue
+            if response.status_code in _RETRY_STATUS_CODES and attempt < max_retries:
+                logger.warning(
+                    "Retrying %s %s after HTTP %s (retry %s of %s)",
+                    outgoing.method,
+                    outgoing.url,
+                    response.status_code,
+                    attempt + 1,
+                    max_retries,
+                )
+                await response.aclose()
+                await self._pause_before_retry(attempt)
+                attempt += 1
+                continue
+            return response
 
     def _get_default_headers(self) -> httpx.Headers:
         """Get default headers with authentication."""
         headers = self.headers
-        headers.update({
-            'Content-Type': 'application/json',
-            'X-IS-MCP': "true"
-        })
+        headers.update({"Content-Type": "application/json", "X-IS-MCP": "true"})
         return headers
 
     def _get_download_default_headers(self) -> httpx.Headers:
         """Get default headers with authentication."""
         headers = self.headers
-        headers.update({
-            'Content-Type': 'application/zip',
-        })
+        headers.update(
+            {
+                "Content-Type": "application/zip",
+            }
+        )
         return headers
 
-    async def request(self, method: str, url: str,
-                      *,
-        content = None,
-        data = None,
-        files = None,
-        json = None,
-        params = None,
-        headers = None,
-        cookies = None,
-        timeout = None,
-        raw: bool = False) -> dict | bytes:
+    async def request(  # type: ignore[override]
+        self,
+        method: str,
+        url: str,
+        *,
+        content=None,
+        data=None,
+        files=None,
+        json=None,
+        params=None,
+        headers=None,
+        cookies=None,
+        timeout=None,
+        raw: bool = False,
+    ) -> dict | bytes:
         """
         Send an HTTP request to the PAPI server asynchronously.
 
@@ -144,7 +273,7 @@ class PAPIClient(httpx.AsyncClient):
                 - Programming errors or edge cases
 
         Example:
-            >>> async with PAPIClient("https://api.example.com", {"Authorization": "XXX"}) as client:
+            >>> async with PAPIClient("https://api.example.com", "api-key", "api-key-id") as client:
             ...     try:
             ...         result = await client.request("GET", "/endpoints")
             ...     except PAPIAuthenticationError:
@@ -165,11 +294,11 @@ class PAPIClient(httpx.AsyncClient):
         # Multipart uploads must set their own Content-Type boundary. Forcing
         # application/json here makes the tenant reject the body.
         if files is not None:
-            headers.pop('Content-Type', None)
-            headers.pop('content-type', None)
+            headers.pop("Content-Type", None)
+            headers.pop("content-type", None)
 
-        full_url = f'{self.base_url}{url}'
-        logger.info(f'Sending async request to {full_url}')
+        full_url = f"{self.base_url}{url}"
+        logger.info(f"Sending async request to {full_url}")
 
         try:
             response = await super().request(
@@ -185,44 +314,27 @@ class PAPIClient(httpx.AsyncClient):
                 content=content,
             )
         except ConnectError as e:
-            logger.exception(f'Connection failed for request to {url}: {e}')
-            raise PAPIConnectionError(f'Failed to connect to PAPI server at {url}: {e}') from e
+            logger.exception(f"Connection failed for request to {url}: {e}")
+            raise PAPIConnectionError(f"Failed to connect to PAPI server at {url}: {e}") from e
         except TimeoutException as e:
-            logger.exception(f'Request timeout for request to {url}: {e}')
-            raise PAPIConnectionError(f'Request timeout for {url}: {e}') from e
+            logger.exception(f"Request timeout for request to {url}: {e}")
+            raise PAPIConnectionError(f"Request timeout for {url}: {e}") from e
         except RequestError as e:
-            logger.exception(f'Request failed for request to {url}: {e}')
-            raise PAPIConnectionError(f'Request failed for {url}: {e}') from e
+            logger.exception(f"Request failed for request to {url}: {e}")
+            raise PAPIConnectionError(f"Request failed for {url}: {e}") from e
         except Exception as e:
-            logger.exception(f'Unexpected error sending request to {url}: {e}')
-            raise PAPIClientError(f'Unexpected error for request to {url}: {e}') from e
+            logger.exception(f"Unexpected error sending request to {url}: {e}")
+            raise PAPIClientError(f"Unexpected error for request to {url}: {e}") from e
 
         if response is None:
-            err_msg = f'Received None response from server for request to {url}'
+            err_msg = f"Received None response from server for request to {url}"
             logger.error(err_msg)
             raise PAPIResponseError(err_msg)
 
-        # Handle different HTTP status codes more specifically
-        if response.status_code == 401:
-            err_msg = f'Authentication failed for request to {url}: {response.text}'
-            logger.error(err_msg)
-            raise PAPIAuthenticationError(err_msg)
-        elif response.status_code == 403:
-            err_msg = f'Authorization failed for request to {url}: {response.text}'
-            logger.error(err_msg)
-            raise PAPIAuthenticationError(err_msg)
-        elif 400 <= response.status_code < 500:
-            err_msg = f'Client error for request to {url}: {response.text} [{response.status_code}]'
-            logger.error(err_msg)
-            raise PAPIClientRequestError(err_msg)
-        elif 500 <= response.status_code < 600:
-            err_msg = f'Server error for request to {url}: {response.text} [{response.status_code}]'
-            logger.error(err_msg)
-            raise PAPIServerError(err_msg)
-        elif response.status_code < 200 or response.status_code >= 300:
-            err_msg = f'Unexpected response code for request to {url}: {response.text} [{response.status_code}]'
-            logger.error(err_msg)
-            raise PAPIResponseError(err_msg)
+        if response.status_code < 200 or response.status_code >= 300:
+            err = _status_exception(url, response.status_code, response.text)
+            logger.error(str(err))
+            raise err
 
         if raw:
             return response.content
@@ -230,41 +342,44 @@ class PAPIClient(httpx.AsyncClient):
         try:
             return response.json()
         except JSONDecodeError as e:
-            err_msg = f'Invalid JSON response from server for request to {url}: {e}'
+            err_msg = f"Invalid JSON response from server for request to {url}: {e}"
             logger.error(err_msg)
             raise PAPIResponseError(err_msg) from e
 
-    async def stream(self, method: str, url: str,
-            *,
-            content=None,
-            data=None,
-            files=None,
-            json=None,
-            params=None,
-            headers=None,
-            cookies=None,
-            timeout=None
-    ) -> io.BytesIO | None:
+    async def stream(  # type: ignore[override]
+        self,
+        method: str,
+        url: str,
+        *,
+        content=None,
+        data=None,
+        files=None,
+        json=None,
+        params=None,
+        headers=None,
+        cookies=None,
+        timeout=None,
+    ) -> io.BytesIO:
         """
-            Asynchronously downloads a file from a URL using httpx streaming
-            and returns it as an in-memory bytes buffer.
+        Asynchronously downloads a file from a URL using httpx streaming
+        and returns it as an in-memory bytes buffer.
 
-            This method is memory-efficient as it doesn't load the entire file
-            into memory at once.
+        This method is memory-efficient as it doesn't load the entire file
+        into memory at once.
 
-            Args:
-                url: The URL of the zip file to download.
-                data (dict, optional): Request payload data. Will be JSON serialized.
-                headers (dict, optional): Custom HTTP headers. If not provided, default
-                                        headers with authentication will be used.
+        Args:
+            url: The URL of the zip file to download.
+            data (dict, optional): Request payload data. Will be JSON serialized.
+            headers (dict, optional): Custom HTTP headers. If not provided, default
+                                    headers with authentication will be used.
 
-            Returns:
-                An io.BytesIO object containing the downloaded zip file data,
-                or None if the download failed.
+        Returns:
+            An io.BytesIO object containing the downloaded zip file data,
+            or None if the download failed.
 
-            Raises:
-                Same exceptions as request() method for consistency.
-            """
+        Raises:
+            Same exceptions as request() method for consistency.
+        """
         logger.info(f"Attempting to download MCP server content from: {url}")
 
         if headers is None:
@@ -280,15 +395,16 @@ class PAPIClient(httpx.AsyncClient):
             zip_buffer = io.BytesIO()
 
             async with super().stream(
-                    method=method,
-                    url=url,
-                    content=content if content else data,
-                    params=params,
-                    headers=headers,
-                    cookies=cookies,
-                    timeout=timeout if timeout else self.timeout,
-                    json=json,
-                    follow_redirects=True) as response:
+                method=method,
+                url=url,
+                content=content if content else data,
+                params=params,
+                headers=headers,
+                cookies=cookies,
+                timeout=timeout if timeout else self.timeout,
+                json=json,
+                follow_redirects=True,
+            ) as response:
 
                 # Helper function to safely get response content for error messages
                 async def get_response_content() -> str:
@@ -300,36 +416,15 @@ class PAPIClient(httpx.AsyncClient):
                             # Limit content size for error messages (first 1000 chars)
                             if len(content_bytes) > get_config().http_response_error_message_max_size:
                                 break
-                        return content_bytes.decode('utf-8', errors='ignore')
+                        return content_bytes.decode("utf-8", errors="ignore")
                     except Exception:
                         return f"Unable to read response content (status: {response.status_code})"
 
-                # Handle different HTTP status codes using the same pattern as request()
-                if response.status_code == 401:
+                if response.status_code < 200 or response.status_code >= 300:
                     response_text = await get_response_content()
-                    err_msg = f'Authentication failed for request to {url}: {response_text}'
-                    logger.error(err_msg)
-                    raise PAPIAuthenticationError(err_msg)
-                elif response.status_code == 403:
-                    response_text = await get_response_content()
-                    err_msg = f'Authorization failed for request to {url}: {response_text}'
-                    logger.error(err_msg)
-                    raise PAPIAuthenticationError(err_msg)
-                elif 400 <= response.status_code < 500:
-                    response_text = await get_response_content()
-                    err_msg = f'Client error for request to {url}: {response_text} [{response.status_code}]'
-                    logger.error(err_msg)
-                    raise PAPIClientRequestError(err_msg)
-                elif 500 <= response.status_code < 600:
-                    response_text = await get_response_content()
-                    err_msg = f'Server error for request to {url}: {response_text} [{response.status_code}]'
-                    logger.error(err_msg)
-                    raise PAPIServerError(err_msg)
-                elif response.status_code < 200 or response.status_code >= 300:
-                    response_text = await get_response_content()
-                    err_msg = f'Unexpected response code for request to {url}: {response_text} [{response.status_code}]'
-                    logger.error(err_msg)
-                    raise PAPIResponseError(err_msg)
+                    err = _status_exception(url, response.status_code, response_text)
+                    logger.error(str(err))
+                    raise err
 
                 # If we get here, the response was successful (2xx)
                 # Get the total file size from headers if available.
@@ -348,20 +443,20 @@ class PAPIClient(httpx.AsyncClient):
                 logger.info("\nDownload finished successfully.")
 
         except ConnectError as e:
-            logger.exception(f'Connection failed for request to {url}: {e}')
-            raise PAPIConnectionError(f'Failed to connect to PAPI server at {url}: {e}') from e
+            logger.exception(f"Connection failed for request to {url}: {e}")
+            raise PAPIConnectionError(f"Failed to connect to PAPI server at {url}: {e}") from e
         except TimeoutException as e:
-            logger.exception(f'Request timeout for request to {url}: {e}')
-            raise PAPIConnectionError(f'Request timeout for {url}: {e}') from e
+            logger.exception(f"Request timeout for request to {url}: {e}")
+            raise PAPIConnectionError(f"Request timeout for {url}: {e}") from e
         except RequestError as e:
-            logger.exception(f'Request failed for request to {url}: {e}')
-            raise PAPIConnectionError(f'Request failed for {url}: {e}') from e
+            logger.exception(f"Request failed for request to {url}: {e}")
+            raise PAPIConnectionError(f"Request failed for {url}: {e}") from e
         except (PAPIAuthenticationError, PAPIClientRequestError, PAPIServerError, PAPIResponseError):
             # Re-raise our custom exceptions without wrapping
             raise
         except Exception as e:
-            logger.exception(f'Unexpected error sending request to {url}: {e}')
-            raise PAPIClientError(f'Unexpected error for request to {url}: {e}') from e
+            logger.exception(f"Unexpected error sending request to {url}: {e}")
+            raise PAPIClientError(f"Unexpected error for request to {url}: {e}") from e
 
         # Reset the buffer's position to the beginning (0).
         # This is crucial so that other libraries (like zipfile) can read it from the start.

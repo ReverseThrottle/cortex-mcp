@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 from fastmcp import Context, FastMCP
 from pydantic import Field
@@ -20,6 +20,22 @@ from usecase.fetcher import get_fetcher
 
 logger = logging.getLogger(__name__)
 
+
+def _coerce_issue_id(value: object) -> int:
+    """Coerce an issue id to int. Booleans and fractional numbers are rejected."""
+    if isinstance(value, bool):
+        raise TypeError("boolean is not an integer issue id")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError("fractional issue id")
+        return int(value)
+    if isinstance(value, str):
+        return int(value)
+    raise TypeError(f"unsupported issue id type: {type(value).__name__}")
+
+
 async def get_issues_response() -> str:
     try:
         issues_json = read_resource("issues_response.json")
@@ -34,12 +50,21 @@ async def get_issues_response() -> str:
         logger.exception(f"Failed to read issues responses: {e}")
         return create_response(data={"error": str(e)}, is_error=True)
 
-async def get_issues(ctx: Context,
-                    filters: Annotated[list[dict], Field(description="Filters list to get the issues by. Leave empty go get all issues")],
-                    search_from: Annotated[int, Field(description="Marker for pagination starting point", default=0)] = 0,
-                    search_to: Annotated[int, Field(description="Marker for pagination ending point", default=30)] = 30,
-                    sort: Annotated[Optional[dict], Field(description="Dictionary of field and keyword to sort by. By default the sort is defined as observation time, desc")] = None,
-                    ) -> str:
+
+async def get_issues(
+    ctx: Context,
+    filters: Annotated[
+        list[dict], Field(description="Filters list to get the issues by. Leave empty go get all issues")
+    ],
+    search_from: Annotated[int, Field(description="Marker for pagination starting point", default=0)] = 0,
+    search_to: Annotated[int, Field(description="Marker for pagination ending point", default=30)] = 30,
+    sort: Annotated[
+        Optional[dict],
+        Field(
+            description="Dictionary of field and keyword to sort by. By default the sort is defined as observation time, desc"
+        ),
+    ] = None,
+) -> str:
     """
     Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/issue/search).
     Retrieves a list of issues or alerts from the Cortex platform.
@@ -71,9 +96,9 @@ async def get_issues(ctx: Context,
             Allowed fields are "id","observation_time","severity".
     Returns:
         JSON response containing issue data.
-      """
+    """
 
-    payload = {
+    payload: dict[str, Any] = {
         "request_data": {
             "search_from": search_from,
             "search_to": search_to,
@@ -82,7 +107,21 @@ async def get_issues(ctx: Context,
     if filters:
         for f in filters:
             if f.get("field") == "id":
-                f["value"] = [int(v) for v in f["value"]]  # Ensure id values are integers
+                raw_value = f.get("value")
+                if not isinstance(raw_value, list):
+                    raw_value = [raw_value]
+                try:
+                    f["value"] = [_coerce_issue_id(v) for v in raw_value]
+                except (TypeError, ValueError) as e:
+                    return create_response(
+                        data={
+                            "error": (
+                                f"Invalid 'id' filter value {f.get('value')!r}: "
+                                f"must be an integer or list of integers ({e})"
+                            )
+                        },
+                        is_error=True,
+                    )
         payload["request_data"]["filters"] = filters
     if sort:
         payload["request_data"]["sort"] = sort
@@ -95,7 +134,14 @@ async def get_issues(ctx: Context,
         }
 
         return create_response(data=response_data)
-    except (PAPIConnectionError, PAPIAuthenticationError, PAPIServerError, PAPIClientRequestError, PAPIResponseError, PAPIClientError) as e:
+    except (
+        PAPIConnectionError,
+        PAPIAuthenticationError,
+        PAPIServerError,
+        PAPIClientRequestError,
+        PAPIResponseError,
+        PAPIClientError,
+    ) as e:
         logger.exception(f"PAPI error while getting issues: {e}")
         return create_response(data={"error": str(e)}, is_error=True)
     except Exception as e:
@@ -105,29 +151,31 @@ async def get_issues(ctx: Context,
 
 class IssuesModule(BaseModule):
     """
-       Module for managing and retrieving security issues and alerts from the Cortex platform.
+    Module for managing and retrieving security issues and alerts from the Cortex platform.
 
-       This module provides tools and resources for interacting with the Cortex platform's issue/alert system,
-       enabling users to search, filter, and paginate through security issues. It supports various filtering
-       criteria such as status, severity, time range, and custom search parameters.
+    This module provides tools and resources for interacting with the Cortex platform's issue/alert system,
+    enabling users to search, filter, and paginate through security issues. It supports various filtering
+    criteria such as status, severity, time range, and custom search parameters.
 
-       The module registers:
-       - Tools: get_issues - for retrieving filtered and paginated issue data
-       - Resources: issues_response.json - example API response for reference
+    The module registers:
+    - Tools: get_issues - for retrieving filtered and paginated issue data
+    - Resources: issues_response.json - example API response for reference
 
-       This module is essential for security monitoring, threat hunting, incident response,
-       and generating reports on detected security events within the Cortex platform.
-       """
+    This module is essential for security monitoring, threat hunting, incident response,
+    and generating reports on detected security events within the Cortex platform.
+    """
 
     def register_tools(self):
         self._add_tool(get_issues)
 
     def register_resources(self):
-        self._add_resource(get_issues_response, uri="resources://issues_response.json",
-    name="issues_response.json",
-    description="Example response from the issues API",
-    mime_type="application/json",)
+        self._add_resource(
+            get_issues_response,
+            uri="resources://issues_response.json",
+            name="issues_response.json",
+            description="Example response from the issues API",
+            mime_type="application/json",
+        )
 
     def __init__(self, mcp: FastMCP):
         super().__init__(mcp)
-

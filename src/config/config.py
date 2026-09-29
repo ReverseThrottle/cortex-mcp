@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -20,11 +22,13 @@ class Settings(BaseSettings):
     write_tools_enabled: bool = Field(False, validation_alias="MCP_WRITE_TOOLS_ENABLED")
     isolate_endpoint_tool_enabled: bool = Field(False, validation_alias="MCP_ISOLATE_ENDPOINT_TOOL_ENABLED")
     http_response_error_message_max_size: int = Field(1000, validation_alias="CORTEX_MCP_RESPONSE_ERROR_MAX_SIZE")
+    max_retries: int = Field(3, validation_alias="CORTEX_MCP_MAX_RETRIES")
 
     # --- PAPI Settings ---
     papi_url_env_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_URL")
     papi_auth_header_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_AUTH_HEADER")
     papi_auth_id_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_AUTH_ID")
+    papi_key_type: Literal["standard", "advanced"] = Field("standard", validation_alias="CORTEX_MCP_PAPI_KEY_TYPE")
     broker_url: str = Field("", validation_alias="CORTEX_MCP_BROKER_URL")
     broker_factory_password: str = Field("", validation_alias="CORTEX_MCP_BROKER_FACTORY_PASSWORD")
 

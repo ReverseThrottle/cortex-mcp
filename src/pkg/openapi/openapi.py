@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +61,8 @@ def bundle_specs(template_file: Path, *specs_dirs: Path) -> Optional[dict[str, A
             main_spec = yaml.safe_load(f)
 
         # Ensure top-level keys exist
-        main_spec.setdefault('paths', {})
-        main_spec.setdefault('components', {}).setdefault('schemas', {})
+        main_spec.setdefault("paths", {})
+        main_spec.setdefault("components", {}).setdefault("schemas", {})
 
         # 2. Iterate over each specs directory and merge files from each one
         total_merged_files_count = 0
@@ -73,7 +73,7 @@ def bundle_specs(template_file: Path, *specs_dirs: Path) -> Optional[dict[str, A
 
             for root, _, files in os.walk(specs_dir):
                 for file in files:
-                    if file.endswith(('.yaml', '.yml')):
+                    if file.endswith((".yaml", ".yml")):
                         file_path = os.path.join(root, file)
                         logger.debug(f"Merging '{file_path}'")
 
@@ -95,7 +95,9 @@ def bundle_specs(template_file: Path, *specs_dirs: Path) -> Optional[dict[str, A
             logger.info(f"Successfully merged {merged_files_count} specification files from '{specs_dir}'")
             total_merged_files_count += merged_files_count
 
-        logger.info(f"Total: Successfully merged {total_merged_files_count} specification files from {len(specs_dirs)} directories")
+        logger.info(
+            f"Total: Successfully merged {total_merged_files_count} specification files from {len(specs_dirs)} directories"
+        )
         return main_spec
 
     except FileNotFoundError as e:

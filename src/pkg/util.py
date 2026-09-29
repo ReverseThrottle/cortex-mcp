@@ -1,5 +1,10 @@
+import hashlib
 import json
+import secrets
+import string
+import time
 from pathlib import Path
+from typing import Literal, assert_never
 
 from pkg.openapi.openapi import bundle_specs
 from pkg.response_envelope import ensure_formatting_metadata
@@ -48,6 +53,7 @@ def create_response(data: dict, is_error: bool = False) -> str:
     ensure_formatting_metadata(data)
     return json.dumps(data, indent=2, ensure_ascii=False)
 
+
 def read_resource(file_path) -> str:
     """
     Read a file from the resources directory.
@@ -70,6 +76,7 @@ def read_resource(file_path) -> str:
                         insufficient permissions.
     """
     return read_file(file_path, RESOURCES_DIR)
+
 
 def read_file(file_path: str, file_directory: Path) -> str:
     """
@@ -122,21 +129,36 @@ def read_file(file_path: str, file_directory: Path) -> str:
     except UnicodeDecodeError as e:
         raise ValueError(f"Unable to decode file {file_path}: {e}") from e
 
-def get_papi_auth_headers(api_key: str, api_key_id: str) -> dict:
-    """
-    Generate authentication headers for Palo Alto Networks API requests.
 
-    Args:
-        api_key (str): The API key for authentication.
-        api_key_id (str): The API key ID for authentication.
-
-    Returns:
-        dict: A dictionary containing the required authentication headers.
+def get_papi_auth_headers(
+    api_key: str,
+    api_key_id: str,
+    key_type: Literal["standard", "advanced"] = "standard",
+) -> dict:
     """
-    return {
-        "Authorization": api_key,
-        "X-XDR-AUTH-ID": api_key_id,
-    }
+    Generate authentication headers for Palo Alto Networks Cortex API requests.
+
+    Standard keys send the raw key. Advanced keys send SHA256(api_key + nonce + timestamp)
+    and must be computed again for every request.
+    """
+    match key_type:
+        case "advanced":
+            nonce = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(64))
+            timestamp = str(int(time.time()) * 1000)
+            auth_key = f"{api_key}{nonce}{timestamp}".encode()
+            return {
+                "Authorization": hashlib.sha256(auth_key).hexdigest(),
+                "x-xdr-auth-id": str(api_key_id),
+                "x-xdr-nonce": nonce,
+                "x-xdr-timestamp": timestamp,
+            }
+        case "standard":
+            return {
+                "Authorization": api_key,
+                "X-XDR-AUTH-ID": str(api_key_id),
+            }
+        case _:
+            assert_never(key_type)
 
 
 def get_papi_url(papi_url_value: str) -> str:
@@ -188,6 +210,7 @@ def bundle_openapi_from_folders():
     openapi_dirs = [base_dir / "openapi" for base_dir in [BUILTINS_DIR, CUSTOM_DIR, REMOTE_DIR]]
     return bundle_openapi_files(*openapi_dirs)
 
+
 def bundle_openapi_files(*specs_dirs: Path) -> dict:
     """
     Bundle OpenAPI specification files from multiple directories into a single dictionary.
@@ -215,4 +238,7 @@ def bundle_openapi_files(*specs_dirs: Path) -> dict:
     if not str(template_file).startswith(str(OPENAPI_DIR.resolve())):
         raise ValueError("Invalid file path: path traversal detected")
 
-    return bundle_specs(template_file, *specs_dirs)
+    spec = bundle_specs(template_file, *specs_dirs)
+    if spec is None:
+        raise RuntimeError("Failed to bundle OpenAPI specifications")
+    return spec

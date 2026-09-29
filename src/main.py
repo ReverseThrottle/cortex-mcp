@@ -8,6 +8,7 @@ the async event loop for the MCP server operations.
 The server can operate in different transport modes (stdio, streamable-http) and integrates
 with XSIAM (Extended Security Intelligence and Automation Management) services.
 """
+
 import os
 
 # Enable advanced FastMCP OpenAPI parser for enhanced API specification processing
@@ -30,7 +31,7 @@ from config.config import get_config
 from pkg.client import PAPIClient
 from pkg.response_envelope import ResponseEnvelopeMiddleware
 from pkg.setup_logging import setup_logging
-from pkg.util import bundle_openapi_from_folders, get_papi_auth_headers, get_papi_url
+from pkg.util import bundle_openapi_from_folders, get_papi_url
 from pkg.write_confirmation import WriteConfirmationMiddleware
 from service.cortex_mcp.server import create_mcp_server
 from usecase.module_util import discover_and_register_modules
@@ -38,6 +39,7 @@ from usecase.module_util import discover_and_register_modules
 logger = logging.getLogger("Cortex MCP")
 
 mcp = FastMCP()
+
 
 async def shutdown(sig: signal.Signals, loop: asyncio.AbstractEventLoop):
     """
@@ -103,8 +105,7 @@ async def async_main(transport: Transport):
 
     if transport != "stdio" and not auth_token:
         logger.warning(
-            "MCP_AUTH_TOKEN is not set — this server is reachable over the network "
-            "with no client authentication."
+            "MCP_AUTH_TOKEN is not set — this server is reachable over the network " "with no client authentication."
         )
 
     mcp = await initialize_mcp_server(api_key, api_key_id, papi_url, auth_token)
@@ -147,7 +148,13 @@ async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, au
     # Catalog calls include scans, exports, and XQL streams that outlive the 30s default.
     open_api_mcp = FastMCP.from_openapi(
         spec,
-        PAPIClient(get_papi_url(papi_url), get_papi_auth_headers(api_key, api_key_id), timeout=300),
+        PAPIClient(
+            get_papi_url(papi_url),
+            api_key,
+            api_key_id,
+            key_type=get_config().papi_key_type,
+            timeout=300,
+        ),
         route_map_fn=openapi_route_map,
     )
     await mcp.import_server(server=open_api_mcp)
