@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     write_tools_enabled: bool = Field(False, validation_alias="MCP_WRITE_TOOLS_ENABLED")
     isolate_endpoint_tool_enabled: bool = Field(False, validation_alias="MCP_ISOLATE_ENDPOINT_TOOL_ENABLED")
     http_response_error_message_max_size: int = Field(1000, validation_alias="CORTEX_MCP_RESPONSE_ERROR_MAX_SIZE")
+    max_retries: int = Field(3, validation_alias="CORTEX_MCP_MAX_RETRIES")
 
     # --- PAPI Settings ---
     papi_url_env_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_URL")

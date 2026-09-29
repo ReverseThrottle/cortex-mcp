@@ -1,7 +1,15 @@
 class PAPIClientError(Exception):
     """Base exception for PAPI client errors"""
 
-    pass
+    def __init__(
+        self,
+        message: str = "",
+        status_code: int | None = None,
+        cortex_error_code: int | str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.cortex_error_code = cortex_error_code
 
 
 class PAPIConnectionError(PAPIClientError):

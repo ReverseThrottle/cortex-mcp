@@ -11,15 +11,18 @@ from entities.exceptions import (
 )
 from pkg.client import PAPIClient
 
+# Settings.max_retries defaults to 3 extra attempts (4 calls) for 429, 503, and connection errors.
+_DEFAULT_RETRY_CALLS = 4
+
 _STATUS_ERRORS = [
-    (401, PAPIAuthenticationError),
-    (403, PAPIAuthenticationError),
-    (400, PAPIClientRequestError),
-    (404, PAPIClientRequestError),
-    (429, PAPIClientRequestError),
-    (500, PAPIServerError),
-    (503, PAPIServerError),
-    (302, PAPIResponseError),
+    (401, PAPIAuthenticationError, 1),
+    (403, PAPIAuthenticationError, 1),
+    (400, PAPIClientRequestError, 1),
+    (404, PAPIClientRequestError, 1),
+    (429, PAPIClientRequestError, _DEFAULT_RETRY_CALLS),
+    (500, PAPIServerError, 1),
+    (503, PAPIServerError, _DEFAULT_RETRY_CALLS),
+    (302, PAPIResponseError, 1),
 ]
 
 
@@ -43,65 +46,73 @@ def _counting(response):
     return handler, state
 
 
+@pytest.fixture(autouse=True)
+def _stub_retry_pause(monkeypatch):
+    async def _no_wait(self, attempt: int) -> None:
+        return None
+
+    monkeypatch.setattr(PAPIClient, "_pause_before_retry", _no_wait)
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("status", "expected"), _STATUS_ERRORS)
-async def test_request_maps_http_status_on_a_single_attempt(status, expected):
+@pytest.mark.parametrize(("status", "expected", "calls"), _STATUS_ERRORS)
+async def test_request_maps_http_status(status, expected, calls):
     handler, state = _counting(httpx.Response(status, text=f"status-{status}"))
     client = _client(handler)
     with pytest.raises(expected, match=str(status) if status not in (401, 403) else "failed"):
         await client.request("POST", "/public_api/v1/case/search")
     await client.aclose()
-    assert state["calls"] == 1
+    assert state["calls"] == calls
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("status", "expected"), _STATUS_ERRORS)
-async def test_stream_maps_http_status_on_a_single_attempt(status, expected):
+@pytest.mark.parametrize(("status", "expected", "calls"), _STATUS_ERRORS)
+async def test_stream_maps_http_status(status, expected, calls):
     handler, state = _counting(httpx.Response(status, text=f"status-{status}"))
     client = _client(handler)
     with pytest.raises(expected):
         await client.stream("POST", "/public_api/v1/mcp/download/")
     await client.aclose()
-    assert state["calls"] == 1
+    assert state["calls"] == calls
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("error", "expected"),
+    ("error", "expected", "calls"),
     [
-        (httpx.ConnectError("down"), PAPIConnectionError),
-        (httpx.ReadTimeout("slow"), PAPIConnectionError),
-        (httpx.RemoteProtocolError("bad protocol"), PAPIConnectionError),
-        (RuntimeError("boom"), PAPIClientError),
+        (httpx.ConnectError("down"), PAPIConnectionError, _DEFAULT_RETRY_CALLS),
+        (httpx.ReadTimeout("slow"), PAPIConnectionError, _DEFAULT_RETRY_CALLS),
+        (httpx.RemoteProtocolError("bad protocol"), PAPIConnectionError, _DEFAULT_RETRY_CALLS),
+        (RuntimeError("boom"), PAPIClientError, 1),
     ],
 )
-async def test_request_maps_transport_failures_on_a_single_attempt(error, expected):
+async def test_request_maps_transport_failures(error, expected, calls):
     handler, state = _counting(error)
     client = _client(handler)
     with pytest.raises(expected):
         await client.request("POST", "/public_api/v1/case/search")
     await client.aclose()
-    assert state["calls"] == 1
+    assert state["calls"] == calls
 
 
 @pytest.mark.asyncio
-async def test_stream_connection_failure_is_a_single_attempt():
+async def test_stream_connection_failure_retries_then_raises():
     handler, state = _counting(httpx.ConnectError("down"))
     client = _client(handler)
     with pytest.raises(PAPIConnectionError, match="Failed to connect"):
         await client.stream("POST", "/public_api/v1/mcp/download/")
     await client.aclose()
-    assert state["calls"] == 1
+    assert state["calls"] == _DEFAULT_RETRY_CALLS
 
 
 @pytest.mark.asyncio
-async def test_stream_timeout_is_a_single_attempt():
+async def test_stream_timeout_retries_then_raises():
     handler, state = _counting(httpx.ReadTimeout("slow"))
     client = _client(handler)
     with pytest.raises(PAPIConnectionError, match="Request timeout"):
         await client.stream("POST", "/public_api/v1/mcp/download/")
     await client.aclose()
-    assert state["calls"] == 1
+    assert state["calls"] == _DEFAULT_RETRY_CALLS
 
 
 @pytest.mark.asyncio

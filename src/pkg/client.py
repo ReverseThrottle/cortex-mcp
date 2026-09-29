@@ -1,5 +1,8 @@
+import asyncio
 import io
+import json
 import logging
+import random
 from json import JSONDecodeError
 
 import httpx
@@ -29,6 +32,59 @@ _PASSTHROUGH_HEADERS = {
     "x-is-mcp",
 }
 
+# Confirmed full jitter: sleep a uniform value in [0, min(cap, base * 2**attempt)].
+# The failed attempt starts at 0, so the first retry sleeps in [0, base].
+_RETRY_STATUS_CODES = {429, 503}
+_RETRY_BASE_SECONDS = 0.5
+_RETRY_CAP_SECONDS = 8.0
+
+
+def _backoff_seconds(attempt: int) -> float:
+    ceiling = min(_RETRY_CAP_SECONDS, _RETRY_BASE_SECONDS * (2**attempt))
+    return random.uniform(0, ceiling)
+
+
+def _cortex_error_code(body: str) -> int | str | None:
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    reply = payload.get("reply")
+    # A JSON null reply code is absent. Fall through to a sibling top-level code.
+    if isinstance(reply, dict) and "err_code" in reply and reply["err_code"] is not None:
+        code = reply["err_code"]
+    elif "err_code" in payload:
+        code = payload["err_code"]
+    else:
+        return None
+    if isinstance(code, bool) or not isinstance(code, int | str):
+        return None
+    return code
+
+
+def _status_exception(url: str, status_code: int, body: str) -> PAPIClientError:
+    code = _cortex_error_code(body)
+    code_text = f", Cortex error code {code}" if code is not None else ""
+    detail = f"(HTTP {status_code}{code_text})"
+    if status_code == 401:
+        message = f"Authentication failed for request to {url} {detail}: {body}"
+        error: PAPIClientError = PAPIAuthenticationError(message, status_code=status_code, cortex_error_code=code)
+    elif status_code == 403:
+        message = f"Authorization failed for request to {url} {detail}: {body}"
+        error = PAPIAuthenticationError(message, status_code=status_code, cortex_error_code=code)
+    elif 400 <= status_code < 500:
+        message = f"Client error for request to {url}: {body} {detail}"
+        error = PAPIClientRequestError(message, status_code=status_code, cortex_error_code=code)
+    elif 500 <= status_code < 600:
+        message = f"Server error for request to {url}: {body} {detail}"
+        error = PAPIServerError(message, status_code=status_code, cortex_error_code=code)
+    else:
+        message = f"Unexpected response code for request to {url}: {body} {detail}"
+        error = PAPIResponseError(message, status_code=status_code, cortex_error_code=code)
+    return error
+
 
 class PAPIClient(httpx.AsyncClient):
     def __init__(self, base_url: str, headers: dict[str, str], timeout: int = 30, **kwargs):
@@ -56,7 +112,7 @@ class PAPIClient(httpx.AsyncClient):
         # the request goes out, regardless of what upstream merged into it.
         self._papi_headers = dict(headers)
 
-    async def send(self, request: httpx.Request, **kwargs) -> httpx.Response:
+    def _apply_tenant_headers(self, request: httpx.Request) -> None:
         tenant_headers = {key.lower(): key for key in self._papi_headers}
         for key in list(request.headers.keys()):
             lowered = key.lower()
@@ -64,7 +120,59 @@ class PAPIClient(httpx.AsyncClient):
                 del request.headers[key]
         for key, value in self._papi_headers.items():
             request.headers[key] = value
-        return await super().send(request, **kwargs)
+
+    def _clone_request(self, request: httpx.Request) -> httpx.Request:
+        # httpx keeps the per-request timeout in extensions. A retry that drops
+        # it falls back to the client timeout.
+        return httpx.Request(
+            method=request.method,
+            url=request.url,
+            headers=httpx.Headers(request.headers),
+            content=bytes(request.content),
+            extensions=dict(request.extensions),
+        )
+
+    async def _pause_before_retry(self, attempt: int) -> None:
+        await asyncio.sleep(_backoff_seconds(attempt))
+
+    async def send(self, request: httpx.Request, **kwargs) -> httpx.Response:
+        await request.aread()
+        self._apply_tenant_headers(request)
+        template = self._clone_request(request)
+        max_retries = get_config().max_retries
+        attempt = 0
+        while True:
+            outgoing = request if attempt == 0 else self._clone_request(template)
+            try:
+                response = await super().send(outgoing, **kwargs)
+            except (ConnectError, TimeoutException, RequestError) as exc:
+                if attempt >= max_retries:
+                    raise
+                logger.warning(
+                    "Retrying %s %s after %s (retry %s of %s)",
+                    outgoing.method,
+                    outgoing.url,
+                    type(exc).__name__,
+                    attempt + 1,
+                    max_retries,
+                )
+                await self._pause_before_retry(attempt)
+                attempt += 1
+                continue
+            if response.status_code in _RETRY_STATUS_CODES and attempt < max_retries:
+                logger.warning(
+                    "Retrying %s %s after HTTP %s (retry %s of %s)",
+                    outgoing.method,
+                    outgoing.url,
+                    response.status_code,
+                    attempt + 1,
+                    max_retries,
+                )
+                await response.aclose()
+                await self._pause_before_retry(attempt)
+                attempt += 1
+                continue
+            return response
 
     def _get_default_headers(self) -> httpx.Headers:
         """Get default headers with authentication."""
@@ -204,27 +312,10 @@ class PAPIClient(httpx.AsyncClient):
             logger.error(err_msg)
             raise PAPIResponseError(err_msg)
 
-        # Handle different HTTP status codes more specifically
-        if response.status_code == 401:
-            err_msg = f"Authentication failed for request to {url}: {response.text}"
-            logger.error(err_msg)
-            raise PAPIAuthenticationError(err_msg)
-        elif response.status_code == 403:
-            err_msg = f"Authorization failed for request to {url}: {response.text}"
-            logger.error(err_msg)
-            raise PAPIAuthenticationError(err_msg)
-        elif 400 <= response.status_code < 500:
-            err_msg = f"Client error for request to {url}: {response.text} [{response.status_code}]"
-            logger.error(err_msg)
-            raise PAPIClientRequestError(err_msg)
-        elif 500 <= response.status_code < 600:
-            err_msg = f"Server error for request to {url}: {response.text} [{response.status_code}]"
-            logger.error(err_msg)
-            raise PAPIServerError(err_msg)
-        elif response.status_code < 200 or response.status_code >= 300:
-            err_msg = f"Unexpected response code for request to {url}: {response.text} [{response.status_code}]"
-            logger.error(err_msg)
-            raise PAPIResponseError(err_msg)
+        if response.status_code < 200 or response.status_code >= 300:
+            err = _status_exception(url, response.status_code, response.text)
+            logger.error(str(err))
+            raise err
 
         if raw:
             return response.content
@@ -310,32 +401,11 @@ class PAPIClient(httpx.AsyncClient):
                     except Exception:
                         return f"Unable to read response content (status: {response.status_code})"
 
-                # Handle different HTTP status codes using the same pattern as request()
-                if response.status_code == 401:
+                if response.status_code < 200 or response.status_code >= 300:
                     response_text = await get_response_content()
-                    err_msg = f"Authentication failed for request to {url}: {response_text}"
-                    logger.error(err_msg)
-                    raise PAPIAuthenticationError(err_msg)
-                elif response.status_code == 403:
-                    response_text = await get_response_content()
-                    err_msg = f"Authorization failed for request to {url}: {response_text}"
-                    logger.error(err_msg)
-                    raise PAPIAuthenticationError(err_msg)
-                elif 400 <= response.status_code < 500:
-                    response_text = await get_response_content()
-                    err_msg = f"Client error for request to {url}: {response_text} [{response.status_code}]"
-                    logger.error(err_msg)
-                    raise PAPIClientRequestError(err_msg)
-                elif 500 <= response.status_code < 600:
-                    response_text = await get_response_content()
-                    err_msg = f"Server error for request to {url}: {response_text} [{response.status_code}]"
-                    logger.error(err_msg)
-                    raise PAPIServerError(err_msg)
-                elif response.status_code < 200 or response.status_code >= 300:
-                    response_text = await get_response_content()
-                    err_msg = f"Unexpected response code for request to {url}: {response_text} [{response.status_code}]"
-                    logger.error(err_msg)
-                    raise PAPIResponseError(err_msg)
+                    err = _status_exception(url, response.status_code, response_text)
+                    logger.error(str(err))
+                    raise err
 
                 # If we get here, the response was successful (2xx)
                 # Get the total file size from headers if available.
