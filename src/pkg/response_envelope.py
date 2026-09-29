@@ -136,7 +136,8 @@ def envelope_tool_result(result: ToolResult) -> ToolResult:
 class ResponseEnvelopeMiddleware(Middleware):
     """Add ``_metadata.formatting_instructions`` to JSON tool results.
 
-    Registered after write confirmation so it sees the final result, including a refusal.
+    Registered before write confirmation. FastMCP runs that first middleware
+    first, so this one sees the final result, including a refusal.
     """
 
     async def on_call_tool(

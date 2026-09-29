@@ -1,7 +1,8 @@
 import json
 
 import pytest
-from fastmcp.server.middleware import MiddlewareContext
+from fastmcp import Client, FastMCP
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools.tool import ToolResult
 from mcp.types import CallToolRequestParams
 
@@ -12,6 +13,7 @@ from pkg.response_envelope import (
     ensure_formatting_metadata,
 )
 from pkg.util import create_response
+from usecase.base_module import BaseModule
 
 
 def test_create_response_keeps_cortex_fields_and_adds_formatting_metadata():
@@ -211,3 +213,71 @@ async def test_middleware_mixes_handwritten_string_results_into_the_object():
     assert "result" not in parsed
     assert "data" not in parsed
     assert "pagination" not in parsed
+
+
+class _RecordingModule(BaseModule):
+    def __init__(self, mcp: FastMCP, fn):
+        super().__init__(mcp)
+        self._fn = fn
+
+    def register_tools(self):
+        self._add_tool(self._fn)
+
+    def register_resources(self):
+        return None
+
+
+class _RefuseMiddleware(Middleware):
+    """Stand in for write confirmation: return the refusal without running the tool."""
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next: CallNext) -> ToolResult:
+        if context.message.name == "refuse_write":
+            return ToolResult(content=create_response(data={"error": "not confirmed"}, is_error=True))
+        return await call_next(context)
+
+
+@pytest.mark.asyncio
+async def test_handwritten_tool_call_returns_the_mixed_object():
+    async def get_issues_shaped() -> str:
+        return create_response(
+            {
+                "_metadata": {"formatting_instructions": "keep this", "source": "get_issues"},
+                "reply": {"observation_time": 1762774211000},
+            }
+        )
+
+    async def refuse_write() -> str:
+        return create_response(data={"error": "should not run"})
+
+    mcp = FastMCP("envelope-test")
+    # Same order as the server: the envelope is added first and sees the refusal.
+    mcp.add_middleware(ResponseEnvelopeMiddleware())
+    mcp.add_middleware(_RefuseMiddleware())
+    _RecordingModule(mcp, get_issues_shaped).register_tools()
+    _RecordingModule(mcp, refuse_write).register_tools()
+
+    issues_tool = await mcp.get_tool("get_issues_shaped")
+    refuse_tool = await mcp.get_tool("refuse_write")
+    assert issues_tool.output_schema is None
+    assert refuse_tool.output_schema is None
+
+    async with Client(mcp) as client:
+        success = await client.call_tool_mcp("get_issues_shaped", {})
+        refused = await client.call_tool_mcp("refuse_write", {})
+
+    assert success.isError is False
+    parsed = json.loads(success.content[0].text)
+    assert parsed["reply"]["observation_time"] == 1762774211000
+    assert parsed["success"] == "true"
+    assert parsed["_metadata"]["formatting_instructions"] == "keep this"
+    assert parsed["_metadata"]["source"] == "get_issues"
+    assert success.structuredContent == parsed
+    assert "result" not in parsed
+
+    assert refused.isError is False
+    refusal = json.loads(refused.content[0].text)
+    assert refusal["error"] == "not confirmed"
+    assert refusal["success"] == "false"
+    assert refusal["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert refused.structuredContent == refusal
+    assert "result" not in refusal

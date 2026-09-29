@@ -136,9 +136,10 @@ def openapi_route_map(route, mcp_type):
 async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, auth_token: str = "") -> FastMCP:
     # Create MCP server instance with authentication
     mcp = create_mcp_server(api_key, api_key_id, auth_token)
-    mcp.add_middleware(WriteConfirmationMiddleware())
-    # Added second so this middleware is outermost and envelopes the final tool result.
+    # FastMCP runs the first middleware added first. The envelope must be outside
+    # write confirmation so a refusal is enveloped the same way as a tool result.
     mcp.add_middleware(ResponseEnvelopeMiddleware())
+    mcp.add_middleware(WriteConfirmationMiddleware())
 
     # Discover mcp components from modules
     discover_and_register_modules(mcp)
