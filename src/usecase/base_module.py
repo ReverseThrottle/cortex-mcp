@@ -71,10 +71,16 @@ class BaseModule(ABC):
             description (str, optional): Description of the tool. If not provided,
                                        the function's docstring will be used.
 
+        Handwritten tools return JSON text. FastMCP's generated ``-> str`` schema
+        requires ``result``, and the MCP SDK rejects the envelope for missing it.
+        ``output_schema=None`` turns that check off, so the client receives the
+        mixed object. A write-tool refusal is a result of the same tool and takes
+        that path. OpenAPI tools are registered separately and keep their schemas.
+
         Example:
             self._add_tool(my_function, "A tool that does something useful")
         """
-        tool = Tool.from_function(fn, description)
+        tool = Tool.from_function(fn, description, output_schema=None)
         self.mcp.add_tool(tool)
         logger.debug(f"Added tool: {tool.name}")
 

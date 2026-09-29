@@ -29,6 +29,7 @@ from fastmcp.server.server import Transport
 
 from config.config import get_config
 from pkg.client import PAPIClient
+from pkg.response_envelope import ResponseEnvelopeMiddleware
 from pkg.setup_logging import setup_logging
 from pkg.util import bundle_openapi_from_folders, get_papi_url
 from pkg.write_confirmation import WriteConfirmationMiddleware
@@ -135,6 +136,9 @@ def openapi_route_map(route, mcp_type):
 async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, auth_token: str = "") -> FastMCP:
     # Create MCP server instance with authentication
     mcp = create_mcp_server(api_key, api_key_id, auth_token)
+    # FastMCP runs the first middleware added first. The envelope must be outside
+    # write confirmation so a refusal is enveloped the same way as a tool result.
+    mcp.add_middleware(ResponseEnvelopeMiddleware())
     mcp.add_middleware(WriteConfirmationMiddleware())
 
     # Discover mcp components from modules

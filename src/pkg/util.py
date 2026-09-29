@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal, assert_never
 
 from pkg.openapi.openapi import bundle_specs
+from pkg.response_envelope import ensure_formatting_metadata
 
 MAIN_DIR = Path(__file__).parent.parent.parent
 SCRIPT_DIR = MAIN_DIR / "src"
@@ -34,20 +35,52 @@ def create_response(data: dict, is_error: bool = False) -> str:
 
     Returns:
         str: A JSON string containing the data with an added 'success' field.
+             ``_metadata.formatting_instructions`` is added when ``_metadata``
+             is missing, and when ``_metadata`` is a dict that does not already
+             include that hint. A non-dict ``_metadata`` is left unchanged.
              The JSON is formatted with 2-space indentation and non-ASCII
              characters are preserved.
 
     Example:
-        >>> data = {"message": "Operation completed", "count": 5}
-        >>> create_response(data)
-        '{\n  "message": "Operation completed",\n  "count": 5,\n  "success": "true"\n}'
+        A successful call keeps the caller's fields, adds ``success``, and adds
+        ``_metadata`` when the tool did not already set formatting instructions::
 
-        >>> error_data = {"error": "Invalid input"}
-        >>> create_response(error_data, is_error=True)
-        '{\n  "error": "Invalid input",\n  "success": "false"\n}'
+            {
+              "message": "Operation completed",
+              "count": 5,
+              "success": "true",
+              "_metadata": {
+                "formatting_instructions": "<LLM_FORMATTING_BASE_INSTRUCTIONS>"
+              }
+            }
+
+        An error response uses ``success`` ``"false"`` and the same metadata::
+
+            {
+              "error": "Invalid input",
+              "success": "false",
+              "_metadata": {
+                "formatting_instructions": "<LLM_FORMATTING_BASE_INSTRUCTIONS>"
+              }
+            }
+
+        >>> parsed = json.loads(create_response({"message": "Operation completed", "count": 5}))
+        >>> parsed["success"]
+        'true'
+        >>> sorted(parsed)
+        ['_metadata', 'count', 'message', 'success']
+        >>> sorted(parsed["_metadata"])
+        ['formatting_instructions']
+
+        >>> error = json.loads(create_response({"error": "Invalid input"}, is_error=True))
+        >>> error["success"]
+        'false'
+        >>> sorted(error)
+        ['_metadata', 'error', 'success']
     """
     success = "true" if not is_error else "false"
     data["success"] = success
+    ensure_formatting_metadata(data)
     return json.dumps(data, indent=2, ensure_ascii=False)
 
 
