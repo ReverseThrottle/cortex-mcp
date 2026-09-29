@@ -11,6 +11,9 @@ paths:
 
         Pagination rules:
         - Every request MUST include "use_page_token": true.
+        - Every request MUST include "next_page_token". The Cortex API rejects the call
+          if it is omitted, including the first page. Pass an empty string "" for the
+          first request, then pass the token returned by the previous response.
         - Each response includes a "next_page_token".
         - The "next_page_token" from the previous response MUST be passed as the value of
           the "next_page_token" field in the next request body.
@@ -40,7 +43,7 @@ paths:
       tags:
         - Vulnerabilities
       requestBody:
-        description: JSON object containing filters, sorting, and pagination settings. An empty request_data object returns all results.
+        description: JSON object containing filters, sorting, and pagination settings. request_data must include next_page_token; pass an empty string "" on the first page. An empty request_data object is rejected.
         required: true
         content:
           application/json:
@@ -67,6 +70,7 @@ paths:
                     search_from: 0
                     search_to: 100
                     use_page_token: true
+                    next_page_token: ""
               simple_request:
                 summary: Simple request with basic filter
                 value:
@@ -77,6 +81,8 @@ paths:
                         value: "CVE-2024"
                     search_from: 0
                     search_to: 50
+                    use_page_token: true
+                    next_page_token: ""
       responses:
         '200':
           description: Successful response containing a list of vulnerabilities that match the given filters.

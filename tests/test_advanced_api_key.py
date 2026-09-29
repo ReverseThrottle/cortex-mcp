@@ -77,3 +77,42 @@ async def test_send_applies_auth_and_drops_inbound_headers(key_type):
         ).hexdigest()
         assert first["Authorization"] == expected_hash
         assert captured[0].headers["x-xdr-nonce"] != captured[1].headers["x-xdr-nonce"]
+
+
+@pytest.mark.asyncio
+async def test_retry_uses_a_fresh_advanced_nonce(monkeypatch):
+    captured: list[httpx.Request] = []
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, json={"reply": {"err_code": 429, "err_msg": "slow down"}})
+        return httpx.Response(200, json={"ok": True})
+
+    async def _no_wait(self, attempt: int) -> None:
+        return None
+
+    monkeypatch.setattr(PAPIClient, "_pause_before_retry", _no_wait)
+    client = PAPIClient(
+        "https://api.example.invalid",
+        "my-secret",
+        "10",
+        key_type="advanced",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.request("POST", "/public_api/v1/system/get_tenant_info", json={"request_data": {}})
+    await client.aclose()
+
+    assert result == {"ok": True}
+    assert len(captured) == 2
+    first, second = captured
+    assert first.headers["x-xdr-nonce"] != second.headers["x-xdr-nonce"]
+    assert first.headers["authorization"] != second.headers["authorization"]
+    for request in captured:
+        nonce = request.headers["x-xdr-nonce"]
+        timestamp = request.headers["x-xdr-timestamp"]
+        expected_hash = hashlib.sha256(f"my-secret{nonce}{timestamp}".encode()).hexdigest()
+        assert request.headers["authorization"] == expected_hash
+        assert request.headers["authorization"] != "my-secret"

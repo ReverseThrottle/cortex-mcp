@@ -29,7 +29,8 @@ _STATUS_ERRORS = [
 def _client(handler) -> PAPIClient:
     return PAPIClient(
         "https://api.example.invalid",
-        {"Authorization": "tenant-secret", "x-xdr-auth-id": "42"},
+        "tenant-secret",
+        "42",
         transport=httpx.MockTransport(handler),
     )
 

@@ -126,6 +126,7 @@ def read_file(file_path: str, file_directory: Path) -> str:
     except UnicodeDecodeError as e:
         raise ValueError(f"Unable to decode file {file_path}: {e}") from e
 
+
 def get_papi_auth_headers(
     api_key: str,
     api_key_id: str,

@@ -53,7 +53,7 @@ def setup_api_arguments(subparser: argparse.ArgumentParser):
         help="The server url (default: environment variable: CORTEX_MCP_PAPI_URL).",
     )
     subparser.add_argument(
-        '--key-type',
+        "--key-type",
         choices=["standard", "advanced"],
         default=None,
         help="API key type: 'standard' (default) or 'advanced' (default: environment variable: CORTEX_MCP_PAPI_KEY_TYPE).",
