@@ -1,7 +1,7 @@
 import io
 import logging
 import posixpath
-from typing import Optional
+from typing import Any, Literal, Optional, overload
 
 from fastmcp import Context
 
@@ -31,6 +31,50 @@ class Fetcher:
         self.api_key = api_key
         self.api_key_id = api_key_id
 
+    @overload
+    async def send_request(
+        self,
+        path: str,
+        method: str = ...,
+        data: Optional[dict | str] = ...,
+        headers: Optional[dict] = ...,
+        omit_papi_prefix: bool = ...,
+        *,
+        stream: Literal[True],
+        files: Optional[dict] = ...,
+        raw: Literal[False] = ...,
+        timeout: Optional[int] = ...,
+    ) -> io.BytesIO: ...
+
+    @overload
+    async def send_request(
+        self,
+        path: str,
+        method: str = ...,
+        data: Optional[dict | str] = ...,
+        headers: Optional[dict] = ...,
+        omit_papi_prefix: bool = ...,
+        *,
+        stream: Literal[False] = ...,
+        files: Optional[dict] = ...,
+        raw: Literal[True],
+        timeout: Optional[int] = ...,
+    ) -> bytes: ...
+
+    @overload
+    async def send_request(
+        self,
+        path: str,
+        method: str = ...,
+        data: Optional[dict | str] = ...,
+        headers: Optional[dict] = ...,
+        omit_papi_prefix: bool = ...,
+        stream: Literal[False] = ...,
+        files: Optional[dict] = ...,
+        raw: Literal[False] = ...,
+        timeout: Optional[int] = ...,
+    ) -> dict[str, Any]: ...
+
     async def send_request(
         self,
         path: str,
@@ -42,7 +86,7 @@ class Fetcher:
         files: Optional[dict] = None,
         raw: bool = False,
         timeout: Optional[int] = None,
-    ) -> dict | io.BytesIO | bytes:
+    ) -> dict[str, Any] | io.BytesIO | bytes:
         """
         Send an HTTP request to the public API.
 
@@ -69,6 +113,7 @@ class Fetcher:
                 path = posixpath.join("/public_api/v1", path.lstrip("/"))
 
         headers = get_papi_auth_headers(self.api_key, self.api_key_id)
+        result: dict[str, Any] | io.BytesIO | bytes
         async with PAPIClient(self.url, headers, timeout=timeout or 30) as client:
             if raw:
                 result = await client.request(
@@ -101,7 +146,10 @@ async def get_fetcher(ctx: Context) -> Fetcher:
     """
     config = get_config()
     url = get_papi_url(config.papi_url_env_key)
-    lifespan: MCPContext = ctx.request_context.lifespan_context
+    request_context = ctx.request_context
+    if request_context is None:
+        raise RuntimeError("MCP request context is unavailable")
+    lifespan: MCPContext = request_context.lifespan_context
     api_key = lifespan.auth_headers.get("Authorization")
     xdr_id = lifespan.auth_headers.get("X-XDR-AUTH-ID")
     if not (api_key and xdr_id):

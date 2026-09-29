@@ -82,7 +82,7 @@ class WriteConfirmationMiddleware(Middleware):
             "Set confirm to true to run it. Set confirm to false to leave the tenant unchanged."
         )
         try:
-            result = await ctx.elicit(message, WriteConfirmation)
+            result = await ctx.elicit(message, WriteConfirmation)  # type: ignore[arg-type]
         except Exception:
             logger.exception("MCP elicitation failed for %s", tool_name)
             return _refused(f"Confirmation for {tool_name} could not be completed, so the operation was not run.")

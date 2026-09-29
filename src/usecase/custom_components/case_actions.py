@@ -34,11 +34,27 @@ _VALID_SEVERITIES = {"low", "medium", "high", "critical"}
 
 async def update_case(
     ctx: Context,
-    case_ids: Annotated[list[int], Field(description="List of case IDs to update. All supplied cases receive the same update.")],
-    comment: Annotated[Optional[str], Field(description="Comment or note to add to the case, e.g. 'Escalated to Tier 2 for further investigation'", default=None)] = None,
-    status: Annotated[Optional[str], Field(description="New case status. Allowed values: new, under_investigation, resolved, closed", default=None)] = None,
-    assigned_user_mail: Annotated[Optional[str], Field(description="Email address of the analyst to assign the case to", default=None)] = None,
-    severity: Annotated[Optional[str], Field(description="New severity level. Allowed values: low, medium, high, critical", default=None)] = None,
+    case_ids: Annotated[
+        list[int], Field(description="List of case IDs to update. All supplied cases receive the same update.")
+    ],
+    comment: Annotated[
+        Optional[str],
+        Field(
+            description="Comment or note to add to the case, e.g. 'Escalated to Tier 2 for further investigation'",
+            default=None,
+        ),
+    ] = None,
+    status: Annotated[
+        Optional[str],
+        Field(description="New case status. Allowed values: new, under_investigation, resolved, closed", default=None),
+    ] = None,
+    assigned_user_mail: Annotated[
+        Optional[str], Field(description="Email address of the analyst to assign the case to", default=None)
+    ] = None,
+    severity: Annotated[
+        Optional[str],
+        Field(description="New severity level. Allowed values: low, medium, high, critical", default=None),
+    ] = None,
 ) -> str:
     """
     Side effects: this operation changes Cortex tenant state (POST /public_api/v1/case/update).
@@ -74,7 +90,9 @@ async def update_case(
     if severity:
         if severity not in _VALID_SEVERITIES:
             return create_response(
-                data={"error": f"Invalid severity '{severity}'. Must be one of: {', '.join(sorted(_VALID_SEVERITIES))}"},
+                data={
+                    "error": f"Invalid severity '{severity}'. Must be one of: {', '.join(sorted(_VALID_SEVERITIES))}"
+                },
                 is_error=True,
             )
         update_data["severity"] = severity

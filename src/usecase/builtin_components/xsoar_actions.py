@@ -31,6 +31,8 @@ _PAPI_ERRORS = (
 )
 
 _MAX_CONTENT_CHARS = 1_000_000
+_MultipartPart = tuple[str | None, bytes | str] | tuple[str | None, bytes | str, str]
+_Multipart = dict[str, _MultipartPart]
 
 
 def _text_error(content: str, label: str) -> str | None:
@@ -73,7 +75,7 @@ def _form_file(value: str | None) -> tuple[None, str] | None:
     return (None, value)
 
 
-async def _post_multipart(ctx: Context, path: str, files: dict, label: str) -> str:
+async def _post_multipart(ctx: Context, path: str, files: _Multipart, label: str) -> str:
     try:
         fetcher = await get_fetcher(ctx)
         response_data = await fetcher.send_request(path, method="POST", files=files, omit_papi_prefix=True)
@@ -102,7 +104,7 @@ async def post_playbook_save_yaml(
     error = _text_error(playbook_yaml, "Playbook YAML")
     if error:
         return create_response(data={"error": error}, is_error=True)
-    files = {"file": (file_name, playbook_yaml.encode("utf-8"), "application/yaml")}
+    files: _Multipart = {"file": (file_name, playbook_yaml.encode("utf-8"), "application/yaml")}
     return await _post_multipart(ctx, "/xsoar/public/v1/playbook/save/yaml", files, "playbook YAML upload")
 
 
@@ -137,7 +139,7 @@ async def post_entry_upload_by_incident_id(
     incident_error = _text_error(incident_id, "Incident id")
     if error or incident_error or payload is None:
         return create_response(data={"error": error or incident_error}, is_error=True)
-    files = {
+    files: _Multipart = {
         "file": (file_name, payload, "application/octet-stream"),
     }
     for field_name, value in (
@@ -195,7 +197,7 @@ async def post_incident_upload_by_incident_id(
     incident_error = _text_error(incident_id, "Incident id")
     if error or incident_error or payload is None:
         return create_response(data={"error": error or incident_error}, is_error=True)
-    files = {"file": (file_name or "upload.bin", payload, "application/octet-stream")}
+    files: _Multipart = {"file": (file_name or "upload.bin", payload, "application/octet-stream")}
     for field_name, value in (("fileName", file_name), ("fileComment", file_comment), ("field", field)):
         part = _form_file(value)
         if part is not None:
@@ -229,7 +231,7 @@ async def post_inv_playbook_task_complete(
         error = _text_error(value, label)
         if error:
             return create_response(data={"error": error}, is_error=True)
-    files = {
+    files: _Multipart = {
         "investigationId": (None, investigation_id),
         "fileComment": (None, file_comment),
         "taskId": (None, task_id),

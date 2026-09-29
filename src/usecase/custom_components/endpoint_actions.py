@@ -31,8 +31,19 @@ _PAPI_ERRORS = (
 
 async def isolate_endpoint(
     ctx: Context,
-    endpoint_ids: Annotated[list[str], Field(description="List of endpoint IDs to isolate. Use get_filtered_endpoints to look up IDs by hostname first if needed.")],
-    comment: Annotated[Optional[str], Field(description="Reason for isolating the endpoint, e.g. 'Suspected compromise - isolating for investigation'", default=None)] = None,
+    endpoint_ids: Annotated[
+        list[str],
+        Field(
+            description="List of endpoint IDs to isolate. Use get_filtered_endpoints to look up IDs by hostname first if needed."
+        ),
+    ],
+    comment: Annotated[
+        Optional[str],
+        Field(
+            description="Reason for isolating the endpoint, e.g. 'Suspected compromise - isolating for investigation'",
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """
     Side effects: this operation changes Cortex tenant state (POST /public_api/v1/endpoints/isolate).
@@ -78,8 +89,19 @@ async def isolate_endpoint(
 
 async def unisolate_endpoint(
     ctx: Context,
-    endpoint_ids: Annotated[list[str], Field(description="List of endpoint IDs to unisolate (restore network access). Use get_filtered_endpoints to look up IDs by hostname first if needed.")],
-    comment: Annotated[Optional[str], Field(description="Reason for unisolating the endpoint, e.g. 'Investigation complete - endpoint cleared'", default=None)] = None,
+    endpoint_ids: Annotated[
+        list[str],
+        Field(
+            description="List of endpoint IDs to unisolate (restore network access). Use get_filtered_endpoints to look up IDs by hostname first if needed."
+        ),
+    ],
+    comment: Annotated[
+        Optional[str],
+        Field(
+            description="Reason for unisolating the endpoint, e.g. 'Investigation complete - endpoint cleared'",
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """
     Side effects: this operation changes Cortex tenant state (POST /public_api/v1/endpoints/unisolate).
