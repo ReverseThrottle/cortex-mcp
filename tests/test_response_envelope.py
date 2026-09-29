@@ -71,6 +71,29 @@ def test_fastmcp_wrapped_array_uses_data_and_total():
     assert "result" not in empty
 
 
+def test_fastmcp_wrapped_json_string_mixes_object_fields():
+    body = {
+        "reply": {"observation_time": 1762774211000},
+        "success": "true",
+        "_metadata": {"formatting_instructions": "keep this", "source": "get_issues"},
+    }
+
+    enveloped = apply_response_envelope({"result": json.dumps(body)})
+
+    assert enveloped["reply"]["observation_time"] == 1762774211000
+    assert enveloped["success"] == "true"
+    assert enveloped["_metadata"]["formatting_instructions"] == "keep this"
+    assert enveloped["_metadata"]["source"] == "get_issues"
+    assert "result" not in enveloped
+    assert "data" not in enveloped
+    assert "total" not in enveloped
+    assert "pagination" not in enveloped
+
+    plain = apply_response_envelope({"result": "not json"})
+    assert plain["result"] == "not json"
+    assert plain["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+
+
 def test_objects_that_merely_contain_result_keep_their_fields():
     listed = apply_response_envelope({"result": [{"id": 1}], "success": "true"})
     assert listed["result"] == [{"id": 1}]
@@ -163,3 +186,28 @@ async def test_middleware_envelopes_fastmcp_wrapped_openapi_arrays():
     assert result.structured_content == parsed
     assert "pagination" not in parsed
     assert "result" not in parsed
+
+
+@pytest.mark.asyncio
+async def test_middleware_mixes_handwritten_string_results_into_the_object():
+    text = create_response(
+        {
+            "_metadata": {"formatting_instructions": "keep this", "source": "get_issues"},
+            "reply": {"observation_time": 1762774211000},
+        }
+    )
+
+    async def call_next(context):
+        return ToolResult(content=text, structured_content={"result": text})
+
+    result = await ResponseEnvelopeMiddleware().on_call_tool(_context(), call_next)
+    parsed = json.loads(result.content[0].text)
+
+    assert parsed["reply"]["observation_time"] == 1762774211000
+    assert parsed["success"] == "true"
+    assert parsed["_metadata"]["formatting_instructions"] == "keep this"
+    assert parsed["_metadata"]["source"] == "get_issues"
+    assert result.structured_content == parsed
+    assert "result" not in parsed
+    assert "data" not in parsed
+    assert "pagination" not in parsed

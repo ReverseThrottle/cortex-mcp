@@ -31,15 +31,35 @@ def _fastmcp_wrapped_array(value: dict) -> list | None:
     """Return the list when FastMCP stored a top-level JSON array as ``{"result": [...]}``.
 
     OpenAPI tools with no output schema wrap a non-object body before middleware
-    runs. An array is the only wrapped body this envelope rewrites. A Cortex
-    object that has other fields, including its own ``result`` list, is left as
-    an object.
+    runs. A list under ``result`` is that array. A Cortex object that has other
+    fields, including its own ``result`` list, is left as an object.
     """
     if list(value) != ["result"]:
         return None
     body = value["result"]
     if isinstance(body, list):
         return body
+    return None
+
+
+def _fastmcp_wrapped_json_object(value: dict) -> dict | None:
+    """Return the object when FastMCP stored a ``-> str`` tool as ``{"result": "<json>"}``.
+
+    Handwritten tools return ``create_response`` text. FastMCP's string output
+    schema stores that text under ``result`` and leaves the object fields inside
+    the string. A non-object string stays wrapped.
+    """
+    if list(value) != ["result"]:
+        return None
+    body = value["result"]
+    if not isinstance(body, str):
+        return None
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
     return None
 
 
@@ -50,14 +70,20 @@ def apply_response_envelope(value: Any) -> Any:
     A top-level JSON array cannot carry ``_metadata``, so it becomes
     ``{"data", "total", "_metadata"}``. FastMCP already wraps that array as
     ``{"result": [...]}``; that object uses the same ``data`` / ``total``
-    envelope. Other JSON values stay as they are. ``total`` and ``pagination``
-    are not added to objects, because Cortex endpoints do not share one
-    pagination shape.
+    envelope. A handwritten ``-> str`` tool is stored as
+    ``{"result": "<json string>"}``. When that string is a JSON object, its
+    fields are the envelope, including ``reply``, ``success``, timestamps, and
+    a formatting hint the tool already set. Other JSON values stay as they are.
+    ``total`` and ``pagination`` are not added to objects, because Cortex
+    endpoints do not share one pagination shape.
     """
     if isinstance(value, dict):
         wrapped = _fastmcp_wrapped_array(value)
         if wrapped is not None:
             return ensure_formatting_metadata({"data": wrapped, "total": len(wrapped)})
+        parsed_object = _fastmcp_wrapped_json_object(value)
+        if parsed_object is not None:
+            return ensure_formatting_metadata(dict(parsed_object))
         return ensure_formatting_metadata(dict(value))
     if isinstance(value, list):
         return ensure_formatting_metadata({"data": value, "total": len(value)})
