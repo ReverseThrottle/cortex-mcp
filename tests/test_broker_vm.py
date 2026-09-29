@@ -16,7 +16,12 @@ from usecase.builtin_components.broker_vm import (
     post_auth_token,
     post_logs,
     post_network_interface,
+    post_network_internal_subnet,
     post_network_ntp,
+    post_network_proxy,
+    post_network_ssl_certificate,
+    post_network_trusted_ca,
+    post_register,
 )
 from usecase.module_util import discover_and_register_modules
 
@@ -179,3 +184,83 @@ async def test_missing_broker_settings_do_not_call_the_network(server_settings):
     server_settings(CORTEX_MCP_BROKER_URL=None, CORTEX_MCP_BROKER_FACTORY_PASSWORD=None)
     result = await post_auth_token(None)
     assert "CORTEX_MCP_BROKER_URL" in result
+
+
+@pytest.mark.asyncio
+async def test_broker_validation_does_not_call_the_appliance(monkeypatch):
+    def rejected(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"unexpected broker call {request.url.path}")
+
+    monkeypatch.setattr(broker_vm, "get_broker_client", lambda: _client(rejected))
+    assert "empty" in await post_network_internal_subnet(None, " ")
+    assert "host and port" in await post_network_proxy(None, "http")
+    assert "address and netmask" in await post_network_interface(None, "eth0", "static")
+    assert "base64-encoded PEM" in await post_network_ssl_certificate(None, "not-pem", "also-not-pem")
+    assert "base64-encoded PEM" in await post_network_trusted_ca(None, "!!!")
+    assert "empty" in await post_register(None, " ")
+
+
+@pytest.mark.asyncio
+async def test_remaining_broker_tools_post_the_documented_bodies(monkeypatch):
+    pem = base64.b64encode(b"certificate").decode()
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/public_api/v1/auth/token":
+            assert "authorization" not in _headers(request)
+            return httpx.Response(200, json={"reply": {"api_key": _TOKEN}})
+        assert _headers(request)["authorization"] == f"Bearer {_TOKEN}"
+        return httpx.Response(200, json={"reply": {"ok": True}})
+
+    client = _client(handler)
+    monkeypatch.setattr(broker_vm, "get_broker_client", lambda: client)
+
+    calls = [
+        (
+            lambda: post_network_interface(None, "eth0", "static", address="10.0.0.5", netmask="255.255.255.0"),
+            "/public_api/v1/network/interface",
+            {
+                "interface_type": "static",
+                "name": "eth0",
+                "address": "10.0.0.5",
+                "netmask": "255.255.255.0",
+                "gateway": "",
+                "dns": [],
+                "is_admin": False,
+            },
+        ),
+        (
+            lambda: post_network_internal_subnet(None, "172.17.0.0/18"),
+            "/public_api/v1/network/internal_subnet",
+            {"docker_subnet": "172.17.0.0/18"},
+        ),
+        (
+            lambda: post_network_proxy(None, "http", host="proxy.example", port=8080),
+            "/public_api/v1/network/proxy",
+            {"proxy_type": "http", "host": "proxy.example", "port": 8080, "user": "", "pwd": None},
+        ),
+        (
+            lambda: post_network_ssl_certificate(None, pem, pem),
+            "/public_api/v1/network/ssl_certificate",
+            {"ssl_key": pem, "ssl_cert": pem, "ssl_key_name": ""},
+        ),
+        (
+            lambda: post_network_trusted_ca(None, pem),
+            "/public_api/v1/network/trusted_ca",
+            {"file": pem},
+        ),
+        (
+            lambda: post_register(None, "reg-token"),
+            "/public_api/v1/register",
+            {"token": "reg-token"},
+        ),
+    ]
+    for call, path, body in calls:
+        before = len(seen)
+        result = json.loads(await call())
+        assert result["success"] == "true"
+        assert result["reply"] == {"ok": True}
+        assert seen[-1].url.path == path
+        assert json.loads(seen[-1].content) == body
+        assert len(seen) == before + (2 if before == 0 else 1)

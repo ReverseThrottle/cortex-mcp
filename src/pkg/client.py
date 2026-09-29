@@ -32,8 +32,8 @@ _PASSTHROUGH_HEADERS = {
     "x-is-mcp",
 }
 
-# Issue 8 requires exponential back-off with jitter but does not set the base, cap, or formula.
-# Full jitter: sleep a uniform random value in [0, min(cap, base * 2**attempt)].
+# Confirmed full jitter: sleep a uniform value in [0, min(cap, base * 2**attempt)].
+# The failed attempt starts at 0, so the first retry sleeps in [0, base].
 _RETRY_STATUS_CODES = {429, 503}
 _RETRY_BASE_SECONDS = 0.5
 _RETRY_CAP_SECONDS = 8.0
@@ -52,7 +52,8 @@ def _cortex_error_code(body: str) -> int | str | None:
     if not isinstance(payload, dict):
         return None
     reply = payload.get("reply")
-    if isinstance(reply, dict) and "err_code" in reply:
+    # A JSON null reply code is absent. Fall through to a sibling top-level code.
+    if isinstance(reply, dict) and "err_code" in reply and reply["err_code"] is not None:
         code = reply["err_code"]
     elif "err_code" in payload:
         code = payload["err_code"]
@@ -97,8 +98,8 @@ class PAPIClient(httpx.AsyncClient):
             **kwargs: Additional arguments passed to httpx.AsyncClient
         """
         # Set default timeout if not provided in kwargs
-        if 'timeout' not in kwargs:
-            kwargs['timeout'] = timeout
+        if "timeout" not in kwargs:
+            kwargs["timeout"] = timeout
 
         super().__init__(base_url=base_url, headers=headers, **kwargs)
 
@@ -121,11 +122,14 @@ class PAPIClient(httpx.AsyncClient):
             request.headers[key] = value
 
     def _clone_request(self, request: httpx.Request) -> httpx.Request:
+        # httpx keeps the per-request timeout in extensions. A retry that drops
+        # it falls back to the client timeout.
         return httpx.Request(
             method=request.method,
             url=request.url,
             headers=httpx.Headers(request.headers),
             content=bytes(request.content),
+            extensions=dict(request.extensions),
         )
 
     async def _pause_before_retry(self, attempt: int) -> None:
@@ -170,35 +174,37 @@ class PAPIClient(httpx.AsyncClient):
                 continue
             return response
 
-
     def _get_default_headers(self) -> httpx.Headers:
         """Get default headers with authentication."""
         headers = self.headers
-        headers.update({
-            'Content-Type': 'application/json',
-            'X-IS-MCP': "true"
-        })
+        headers.update({"Content-Type": "application/json", "X-IS-MCP": "true"})
         return headers
 
     def _get_download_default_headers(self) -> httpx.Headers:
         """Get default headers with authentication."""
         headers = self.headers
-        headers.update({
-            'Content-Type': 'application/zip',
-        })
+        headers.update(
+            {
+                "Content-Type": "application/zip",
+            }
+        )
         return headers
 
-    async def request(self, method: str, url: str,
-                      *,
-        content = None,
-        data = None,
-        files = None,
-        json = None,
-        params = None,
-        headers = None,
-        cookies = None,
-        timeout = None,
-        raw: bool = False) -> dict | bytes:
+    async def request(  # type: ignore[override]
+        self,
+        method: str,
+        url: str,
+        *,
+        content=None,
+        data=None,
+        files=None,
+        json=None,
+        params=None,
+        headers=None,
+        cookies=None,
+        timeout=None,
+        raw: bool = False,
+    ) -> dict | bytes:
         """
         Send an HTTP request to the PAPI server asynchronously.
 
@@ -269,11 +275,11 @@ class PAPIClient(httpx.AsyncClient):
         # Multipart uploads must set their own Content-Type boundary. Forcing
         # application/json here makes the tenant reject the body.
         if files is not None:
-            headers.pop('Content-Type', None)
-            headers.pop('content-type', None)
+            headers.pop("Content-Type", None)
+            headers.pop("content-type", None)
 
-        full_url = f'{self.base_url}{url}'
-        logger.info(f'Sending async request to {full_url}')
+        full_url = f"{self.base_url}{url}"
+        logger.info(f"Sending async request to {full_url}")
 
         try:
             response = await super().request(
@@ -289,20 +295,20 @@ class PAPIClient(httpx.AsyncClient):
                 content=content,
             )
         except ConnectError as e:
-            logger.exception(f'Connection failed for request to {url}: {e}')
-            raise PAPIConnectionError(f'Failed to connect to PAPI server at {url}: {e}') from e
+            logger.exception(f"Connection failed for request to {url}: {e}")
+            raise PAPIConnectionError(f"Failed to connect to PAPI server at {url}: {e}") from e
         except TimeoutException as e:
-            logger.exception(f'Request timeout for request to {url}: {e}')
-            raise PAPIConnectionError(f'Request timeout for {url}: {e}') from e
+            logger.exception(f"Request timeout for request to {url}: {e}")
+            raise PAPIConnectionError(f"Request timeout for {url}: {e}") from e
         except RequestError as e:
-            logger.exception(f'Request failed for request to {url}: {e}')
-            raise PAPIConnectionError(f'Request failed for {url}: {e}') from e
+            logger.exception(f"Request failed for request to {url}: {e}")
+            raise PAPIConnectionError(f"Request failed for {url}: {e}") from e
         except Exception as e:
-            logger.exception(f'Unexpected error sending request to {url}: {e}')
-            raise PAPIClientError(f'Unexpected error for request to {url}: {e}') from e
+            logger.exception(f"Unexpected error sending request to {url}: {e}")
+            raise PAPIClientError(f"Unexpected error for request to {url}: {e}") from e
 
         if response is None:
-            err_msg = f'Received None response from server for request to {url}'
+            err_msg = f"Received None response from server for request to {url}"
             logger.error(err_msg)
             raise PAPIResponseError(err_msg)
 
@@ -317,41 +323,44 @@ class PAPIClient(httpx.AsyncClient):
         try:
             return response.json()
         except JSONDecodeError as e:
-            err_msg = f'Invalid JSON response from server for request to {url}: {e}'
+            err_msg = f"Invalid JSON response from server for request to {url}: {e}"
             logger.error(err_msg)
             raise PAPIResponseError(err_msg) from e
 
-    async def stream(self, method: str, url: str,
-            *,
-            content=None,
-            data=None,
-            files=None,
-            json=None,
-            params=None,
-            headers=None,
-            cookies=None,
-            timeout=None
-    ) -> io.BytesIO | None:
+    async def stream(  # type: ignore[override]
+        self,
+        method: str,
+        url: str,
+        *,
+        content=None,
+        data=None,
+        files=None,
+        json=None,
+        params=None,
+        headers=None,
+        cookies=None,
+        timeout=None,
+    ) -> io.BytesIO:
         """
-            Asynchronously downloads a file from a URL using httpx streaming
-            and returns it as an in-memory bytes buffer.
+        Asynchronously downloads a file from a URL using httpx streaming
+        and returns it as an in-memory bytes buffer.
 
-            This method is memory-efficient as it doesn't load the entire file
-            into memory at once.
+        This method is memory-efficient as it doesn't load the entire file
+        into memory at once.
 
-            Args:
-                url: The URL of the zip file to download.
-                data (dict, optional): Request payload data. Will be JSON serialized.
-                headers (dict, optional): Custom HTTP headers. If not provided, default
-                                        headers with authentication will be used.
+        Args:
+            url: The URL of the zip file to download.
+            data (dict, optional): Request payload data. Will be JSON serialized.
+            headers (dict, optional): Custom HTTP headers. If not provided, default
+                                    headers with authentication will be used.
 
-            Returns:
-                An io.BytesIO object containing the downloaded zip file data,
-                or None if the download failed.
+        Returns:
+            An io.BytesIO object containing the downloaded zip file data,
+            or None if the download failed.
 
-            Raises:
-                Same exceptions as request() method for consistency.
-            """
+        Raises:
+            Same exceptions as request() method for consistency.
+        """
         logger.info(f"Attempting to download MCP server content from: {url}")
 
         if headers is None:
@@ -367,15 +376,16 @@ class PAPIClient(httpx.AsyncClient):
             zip_buffer = io.BytesIO()
 
             async with super().stream(
-                    method=method,
-                    url=url,
-                    content=content if content else data,
-                    params=params,
-                    headers=headers,
-                    cookies=cookies,
-                    timeout=timeout if timeout else self.timeout,
-                    json=json,
-                    follow_redirects=True) as response:
+                method=method,
+                url=url,
+                content=content if content else data,
+                params=params,
+                headers=headers,
+                cookies=cookies,
+                timeout=timeout if timeout else self.timeout,
+                json=json,
+                follow_redirects=True,
+            ) as response:
 
                 # Helper function to safely get response content for error messages
                 async def get_response_content() -> str:
@@ -387,7 +397,7 @@ class PAPIClient(httpx.AsyncClient):
                             # Limit content size for error messages (first 1000 chars)
                             if len(content_bytes) > get_config().http_response_error_message_max_size:
                                 break
-                        return content_bytes.decode('utf-8', errors='ignore')
+                        return content_bytes.decode("utf-8", errors="ignore")
                     except Exception:
                         return f"Unable to read response content (status: {response.status_code})"
 
@@ -414,20 +424,20 @@ class PAPIClient(httpx.AsyncClient):
                 logger.info("\nDownload finished successfully.")
 
         except ConnectError as e:
-            logger.exception(f'Connection failed for request to {url}: {e}')
-            raise PAPIConnectionError(f'Failed to connect to PAPI server at {url}: {e}') from e
+            logger.exception(f"Connection failed for request to {url}: {e}")
+            raise PAPIConnectionError(f"Failed to connect to PAPI server at {url}: {e}") from e
         except TimeoutException as e:
-            logger.exception(f'Request timeout for request to {url}: {e}')
-            raise PAPIConnectionError(f'Request timeout for {url}: {e}') from e
+            logger.exception(f"Request timeout for request to {url}: {e}")
+            raise PAPIConnectionError(f"Request timeout for {url}: {e}") from e
         except RequestError as e:
-            logger.exception(f'Request failed for request to {url}: {e}')
-            raise PAPIConnectionError(f'Request failed for {url}: {e}') from e
+            logger.exception(f"Request failed for request to {url}: {e}")
+            raise PAPIConnectionError(f"Request failed for {url}: {e}") from e
         except (PAPIAuthenticationError, PAPIClientRequestError, PAPIServerError, PAPIResponseError):
             # Re-raise our custom exceptions without wrapping
             raise
         except Exception as e:
-            logger.exception(f'Unexpected error sending request to {url}: {e}')
-            raise PAPIClientError(f'Unexpected error for request to {url}: {e}') from e
+            logger.exception(f"Unexpected error sending request to {url}: {e}")
+            raise PAPIClientError(f"Unexpected error for request to {url}: {e}") from e
 
         # Reset the buffer's position to the beginning (0).
         # This is crucial so that other libraries (like zipfile) can read it from the start.

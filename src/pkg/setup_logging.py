@@ -1,11 +1,14 @@
 # fmt: off
 import logging
 import sys
+from typing import Protocol
 
-from pydantic_settings import BaseSettings
+
+class _LogConfig(Protocol):
+    log_level: str
 
 
-def setup_logging(config: BaseSettings):
+def setup_logging(config: _LogConfig):
     """
     Configure logging for the application with a consistent format and handler.
 
@@ -54,11 +57,21 @@ def setup_logging(config: BaseSettings):
     return root_logger
 # fmt: on
 
+
 def configure_library_logging():
     """
     Configure logging levels for external libraries to reduce verbose output.
     """
     # Set library logging to WARNING level to suppress debug/info logs
-    for name in ("mcp.server.lowlevel.server", "mcp.server.streamable_http_manager", "sse_starlette.sse", "httpx", "httpcore", "httpcore.http11", "httpcore.connection", "fastmcp"):
+    for name in (
+        "mcp.server.lowlevel.server",
+        "mcp.server.streamable_http_manager",
+        "sse_starlette.sse",
+        "httpx",
+        "httpcore",
+        "httpcore.http11",
+        "httpcore.connection",
+        "fastmcp",
+    ):
         logger = logging.getLogger(name)
         logger.setLevel(logging.WARNING)

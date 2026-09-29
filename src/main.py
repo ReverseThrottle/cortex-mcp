@@ -8,6 +8,7 @@ the async event loop for the MCP server operations.
 The server can operate in different transport modes (stdio, streamable-http) and integrates
 with XSIAM (Extended Security Intelligence and Automation Management) services.
 """
+
 import os
 
 # Enable advanced FastMCP OpenAPI parser for enhanced API specification processing
@@ -37,6 +38,7 @@ from usecase.module_util import discover_and_register_modules
 logger = logging.getLogger("Cortex MCP")
 
 mcp = FastMCP()
+
 
 async def shutdown(sig: signal.Signals, loop: asyncio.AbstractEventLoop):
     """
@@ -102,8 +104,7 @@ async def async_main(transport: Transport):
 
     if transport != "stdio" and not auth_token:
         logger.warning(
-            "MCP_AUTH_TOKEN is not set — this server is reachable over the network "
-            "with no client authentication."
+            "MCP_AUTH_TOKEN is not set — this server is reachable over the network " "with no client authentication."
         )
 
     mcp = await initialize_mcp_server(api_key, api_key_id, papi_url, auth_token)

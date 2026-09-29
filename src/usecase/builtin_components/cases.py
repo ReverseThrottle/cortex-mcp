@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 from fastmcp import Context, FastMCP
 from pydantic import Field
@@ -35,12 +35,18 @@ async def get_cases_response() -> str:
         return create_response(data={"error": str(e)}, is_error=True)
 
 
-async def get_cases(ctx: Context,
-                    filters: Annotated[list[dict], Field(description="Filters list to get the cases by. Leave empty go get all cases")],
-                    search_from: Annotated[int, Field(description="Marker for pagination starting point", default=0)] = 0,
-                    search_to: Annotated[int, Field(description="Marker for pagination ending point, max 100", default=30)] = 30,
-                    sort: Annotated[Optional[dict], Field(description="Dictionary of field and keyword to sort by. By default the sort is defined as creation_time, desc")] = None,
-                    ) -> str:
+async def get_cases(
+    ctx: Context,
+    filters: Annotated[list[dict], Field(description="Filters list to get the cases by. Leave empty go get all cases")],
+    search_from: Annotated[int, Field(description="Marker for pagination starting point", default=0)] = 0,
+    search_to: Annotated[int, Field(description="Marker for pagination ending point, max 100", default=30)] = 30,
+    sort: Annotated[
+        Optional[dict],
+        Field(
+            description="Dictionary of field and keyword to sort by. By default the sort is defined as creation_time, desc"
+        ),
+    ] = None,
+) -> str:
     """
     Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/case/search).
     Retrieves a list of cases or incidents from the Cortex platform.
@@ -70,9 +76,9 @@ async def get_cases(ctx: Context,
 
     Returns:
         JSON response containing case data.
-      """
+    """
 
-    payload = {
+    payload: dict[str, Any] = {
         "request_data": {
             "search_from": search_from,
             "search_to": search_to,
@@ -91,7 +97,14 @@ async def get_cases(ctx: Context,
         response_data = await fetcher.send_request("case/search/", data=payload)
 
         return create_response(data=response_data)
-    except (PAPIConnectionError, PAPIAuthenticationError, PAPIServerError, PAPIClientRequestError, PAPIResponseError, PAPIClientError) as e:
+    except (
+        PAPIConnectionError,
+        PAPIAuthenticationError,
+        PAPIServerError,
+        PAPIClientRequestError,
+        PAPIResponseError,
+        PAPIClientError,
+    ) as e:
         logger.exception(f"PAPI error while getting cases: {e}")
         return create_response(data={"error": str(e)}, is_error=True)
     except Exception as e:
@@ -101,26 +114,30 @@ async def get_cases(ctx: Context,
 
 class CasesModule(BaseModule):
     """
-        Module for managing Cortex platform cases and incidents.
+    Module for managing Cortex platform cases and incidents.
 
-        This module provides functionality to retrieve and interact with security cases
-        from the Cortex platform. It includes tools for searching and filtering
-        cases based on various criteria such as status, time range, and custom filters.
+    This module provides functionality to retrieve and interact with security cases
+    from the Cortex platform. It includes tools for searching and filtering
+    cases based on various criteria such as status, time range, and custom filters.
 
-        Tools provided:
-            - get_cases: Retrieves cases with filtering, pagination, and sorting options
+    Tools provided:
+        - get_cases: Retrieves cases with filtering, pagination, and sorting options
 
-        Resources provided:
-            - cases_response.json: Example API response for cases endpoint
-        """
+    Resources provided:
+        - cases_response.json: Example API response for cases endpoint
+    """
+
     def register_tools(self):
         self._add_tool(get_cases)
 
     def register_resources(self):
-        self._add_resource(get_cases_response, uri="resources://cases_response.json",
-    name="cases_response.json",
-    description="Example response from the cases API",
-    mime_type="application/json",)
+        self._add_resource(
+            get_cases_response,
+            uri="resources://cases_response.json",
+            name="cases_response.json",
+            description="Example response from the cases API",
+            mime_type="application/json",
+        )
 
     def __init__(self, mcp: FastMCP):
         super().__init__(mcp)

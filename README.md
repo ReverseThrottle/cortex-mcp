@@ -83,19 +83,23 @@ The server acts as a thin bridge: it translates MCP tool calls into authenticate
 
 ### Option 1: Docker (recommended)
 
-```bash
-# 1. Clone the repo
-git clone https://github.com/ReverseThrottle/cortex-mcp.git
-cd cortex-mcp
+Published images are `ghcr.io/reversethrottle/cortex-mcp:<tag>` and `ghcr.io/reversethrottle/cortex-mcp:latest`. A version tag push (`v1.2.3` or `1.2.3`) publishes that tag. Publishing a GitHub release also publishes `latest`. The workflow logs in to GHCR with the built-in `GITHUB_TOKEN`.
 
-# 2. Create your env file
-cp .env.example .env
+```bash
+# 1. Create your env file (copy .env.example from the repo)
 # Edit .env with your Cortex credentials
 
-# 3. Build the image
-docker build -t cortex-mcp .
+# 2. Run the published image (stdio mode — used by Claude Desktop)
+docker run --env-file /path/to/.env -i --rm ghcr.io/reversethrottle/cortex-mcp:latest
+```
 
-# 4. Run (stdio mode — used by Claude Desktop)
+To build from this repo instead:
+
+```bash
+git clone https://github.com/ReverseThrottle/cortex-mcp.git
+cd cortex-mcp
+cp .env.example .env
+docker build -t cortex-mcp .
 docker run --env-file .env -i --rm cortex-mcp
 ```
 
@@ -192,7 +196,7 @@ Open the Claude Desktop config file (accessible from **Settings → Developer**)
         "run",
         "--env-file", "/absolute/path/to/.env",
         "-i", "--rm",
-        "cortex-mcp"
+        "ghcr.io/reversethrottle/cortex-mcp:latest"
       ]
     }
   }

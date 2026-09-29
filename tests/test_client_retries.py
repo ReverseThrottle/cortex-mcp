@@ -5,6 +5,7 @@ import pytest
 
 from entities.exceptions import (
     PAPIAuthenticationError,
+    PAPIClientRequestError,
     PAPIConnectionError,
     PAPIServerError,
 )
@@ -151,3 +152,53 @@ async def test_500_is_not_retried(monkeypatch):
     assert exc.value.cortex_error_code is None
     assert "HTTP 500" in str(exc.value)
     assert "Cortex error code" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ({"reply": {"err_code": None}, "err_code": 100}, 100),
+        ({"reply": {"err_code": 0}, "err_code": 999}, 0),
+        ({"reply": {"err_code": True}, "err_code": 100}, None),
+    ],
+)
+async def test_error_code_prefers_reply_unless_it_is_null(monkeypatch, body, expected):
+    client = _client(lambda request: httpx.Response(400, json=body), monkeypatch)
+    with pytest.raises(PAPIClientRequestError) as exc:
+        await client.request("POST", "/public_api/v1/case/search")
+    await client.aclose()
+
+    assert exc.value.status_code == 400
+    assert exc.value.cortex_error_code == expected
+
+
+@pytest.mark.asyncio
+async def test_retry_keeps_per_request_timeout(monkeypatch):
+    timeouts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(request.extensions.get("timeout"))
+        if len(timeouts) == 1:
+            return httpx.Response(429, json={"err_code": 1})
+        return httpx.Response(200, json={"ok": True})
+
+    client = PAPIClient(
+        "https://api.example.invalid",
+        {"Authorization": "tenant-secret", "x-xdr-auth-id": "42"},
+        timeout=30,
+        transport=httpx.MockTransport(handler),
+    )
+    monkeypatch.setattr("pkg.client.get_config", lambda: _RetryConfig(3))
+
+    async def _no_wait(self, attempt: int) -> None:
+        return None
+
+    monkeypatch.setattr(PAPIClient, "_pause_before_retry", _no_wait)
+    result = await client.request("POST", "/public_api/v1/case/search", timeout=120)
+    await client.aclose()
+
+    assert result == {"ok": True}
+    assert len(timeouts) == 2
+    assert timeouts[0]["read"] == 120
+    assert timeouts[1]["read"] == 120

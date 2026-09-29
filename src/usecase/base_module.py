@@ -59,7 +59,7 @@ class BaseModule(ABC):
         """
         pass
 
-    def _add_tool(self, fn: Callable, description: str = None):
+    def _add_tool(self, fn: Callable, description: str | None = None):
         """
         Add a tool to the MCP instance.
 
@@ -78,7 +78,7 @@ class BaseModule(ABC):
         self.mcp.add_tool(tool)
         logger.debug(f"Added tool: {tool.name}")
 
-    def _add_resource(self, fn: Callable, uri: str, name: str, description: str, mime_type: str = 'application/json'):
+    def _add_resource(self, fn: Callable, uri: str, name: str, description: str, mime_type: str = "application/json"):
         """
         Add a resource to the MCP instance.
 

@@ -21,6 +21,7 @@ def create_mcp_lifespan(api_key: Optional[str] = None, api_key_id: Optional[str]
         api_key: API key to inject (falls back to env var if None)
         api_key_id: API key ID to inject (falls back to env var if None)
     """
+
     @asynccontextmanager
     async def mcp_lifespan(mcp_server: FastMCP) -> AsyncIterator[MCPContext]:
         """
@@ -77,11 +78,7 @@ def create_mcp_server(
     """
     lifespan = create_mcp_lifespan(api_key, api_key_id)
 
-    auth = (
-        StaticTokenVerifier(tokens={auth_token: {"client_id": "cortex-mcp-client"}})
-        if auth_token
-        else None
-    )
+    auth = StaticTokenVerifier(tokens={auth_token: {"client_id": "cortex-mcp-client"}}) if auth_token else None
 
     mcp = FastMCP(
         name="Cortex MCP Server",
