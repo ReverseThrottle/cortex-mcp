@@ -21,6 +21,7 @@ from starlette.middleware import Middleware
 from config.config import get_config
 from pkg.client import PAPIClient
 from pkg.input_validation import JsonSchemaInputMiddleware
+from pkg.portkey_session import PortkeySessionAdapter
 from pkg.protocol_header import ModernProtocolHeaderMiddleware
 from pkg.response_envelope import ResponseEnvelopeMiddleware
 from pkg.setup_logging import setup_logging
@@ -67,6 +68,19 @@ async def shutdown(sig: signal.Signals, loop: asyncio.AbstractEventLoop):
 
 def csv_list(value: str) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def streamable_http_middleware(path: str, auth_token: str = "") -> list[Middleware]:
+    """Middleware in front of the stateless Streamable HTTP handler.
+
+    The adapter is outside the protocol-header check. Host and origin
+    protection is installed by FastMCP further out, so a rejected host does
+    not reach the adapter. The handler itself stays ``stateless_http``.
+    """
+    return [
+        Middleware(PortkeySessionAdapter, path=path, auth_token=auth_token),
+        Middleware(ModernProtocolHeaderMiddleware),
+    ]
 
 
 def resolve_transport(transport: str) -> str:
@@ -134,9 +148,11 @@ async def async_main(transport: str):
         await mcp.run_async(transport="stdio")
         return
 
-    # Stateless Streamable HTTP: no protocol session and no standalone GET SSE stream.
-    # Hosts default to loopback so an Origin that matches a foreign Host is not
-    # treated as same-origin. The Docker image widens MCP_ALLOWED_HOSTS.
+    # Stateless Streamable HTTP: the handler mints no session id and opens no
+    # standalone GET SSE stream. PortkeySessionAdapter, in front of that
+    # endpoint, stores Mcp-Session-Id for Portkey. Hosts default to loopback
+    # so an Origin that matches a foreign Host is not treated as same-origin.
+    # The Docker image widens MCP_ALLOWED_HOSTS.
     await mcp.run_http_async(
         transport="streamable-http",
         host=config.mcp_host,
@@ -146,7 +162,7 @@ async def async_main(transport: str):
         host_origin_protection=True,
         allowed_hosts=csv_list(config.mcp_allowed_hosts),
         allowed_origins=csv_list(config.mcp_allowed_origins),
-        middleware=[Middleware(ModernProtocolHeaderMiddleware)],
+        middleware=streamable_http_middleware(config.mcp_path, auth_token),
     )
 
 
