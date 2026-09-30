@@ -9,6 +9,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from entities.MCPContext import MCPContext
+from version import __version__
 
 logger = logging.getLogger("Cortex MCP")
 
@@ -82,8 +83,12 @@ def create_mcp_server(
 
     mcp = FastMCP(
         name="Cortex MCP Server",
+        version=__version__,
         lifespan=lifespan,
         auth=auth,
+        strict_input_validation=True,
+        cache_ttl=300,
+        cache_scope="private",
     )
 
     @mcp.custom_route("/ping/", methods=["GET"], include_in_schema=False)

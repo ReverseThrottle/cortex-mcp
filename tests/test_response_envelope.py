@@ -3,8 +3,8 @@ import json
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-from fastmcp.tools.tool import ToolResult
-from mcp.types import CallToolRequestParams
+from fastmcp.tools import InputRequiredToolResult, ToolResult
+from mcp.types import CallToolRequestParams, InputRequiredResult
 
 from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
 from pkg.response_envelope import (
@@ -136,6 +136,16 @@ def _context() -> MiddlewareContext:
 
 
 @pytest.mark.asyncio
+async def test_envelope_leaves_an_input_required_result_unchanged():
+    pending = InputRequiredToolResult(InputRequiredResult(request_state="pending"))
+
+    async def call_next(context):
+        return pending
+
+    assert await ResponseEnvelopeMiddleware().on_call_tool(_context(), call_next) is pending
+
+
+@pytest.mark.asyncio
 async def test_middleware_envelopes_object_results_without_rewriting_values():
     async def call_next(context):
         body = {"reply": {"observation_time": 1762774211000}}
@@ -258,26 +268,26 @@ async def test_handwritten_tool_call_returns_the_mixed_object():
 
     issues_tool = await mcp.get_tool("get_issues_shaped")
     refuse_tool = await mcp.get_tool("refuse_write")
-    assert issues_tool.output_schema is None
-    assert refuse_tool.output_schema is None
+    assert issues_tool.output_schema == {"type": "object", "additionalProperties": True}
+    assert refuse_tool.output_schema == {"type": "object", "additionalProperties": True}
 
     async with Client(mcp) as client:
         success = await client.call_tool_mcp("get_issues_shaped", {})
         refused = await client.call_tool_mcp("refuse_write", {})
 
-    assert success.isError is False
+    assert success.is_error is False
     parsed = json.loads(success.content[0].text)
     assert parsed["reply"]["observation_time"] == 1762774211000
     assert parsed["success"] == "true"
     assert parsed["_metadata"]["formatting_instructions"] == "keep this"
     assert parsed["_metadata"]["source"] == "get_issues"
-    assert success.structuredContent == parsed
+    assert success.structured_content == parsed
     assert "result" not in parsed
 
-    assert refused.isError is False
+    assert refused.is_error is True
     refusal = json.loads(refused.content[0].text)
     assert refusal["error"] == "not confirmed"
     assert refusal["success"] == "false"
     assert refusal["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
-    assert refused.structuredContent == refusal
+    assert refused.structured_content == refusal
     assert "result" not in refusal

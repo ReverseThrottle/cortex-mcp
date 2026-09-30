@@ -9,32 +9,28 @@ The server can operate in different transport modes (stdio, streamable-http) and
 with XSIAM (Extended Security Intelligence and Automation Management) services.
 """
 
-import os
-
-# Enable advanced FastMCP OpenAPI parser for enhanced API specification processing
-# This must be set before importing FastMCP to ensure the new parser is used for
-# better compatibility with complex OpenAPI schemas and improved error handling
-# Force the experimental parser. setdefault would leave an explicit "false",
-# and the legacy parser calls raise_for_status on the dict PAPIClient.request returns.
-os.environ["FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER"] = "true"  # noqa: E402
-
 import asyncio
 import logging
 import signal
 from functools import partial
 
 from fastmcp import FastMCP
-from fastmcp.experimental.server.openapi.routing import MCPType
-from fastmcp.server.server import Transport
+from fastmcp.server.providers.openapi.routing import MCPType
+from starlette.middleware import Middleware
 
 from config.config import get_config
 from pkg.client import PAPIClient
+from pkg.input_validation import JsonSchemaInputMiddleware
+from pkg.protocol_header import ModernProtocolHeaderMiddleware
 from pkg.response_envelope import ResponseEnvelopeMiddleware
 from pkg.setup_logging import setup_logging
+from pkg.tool_presentation import annotate_openapi_component
+from pkg.tool_rate_limit import ToolCallRateLimitMiddleware
 from pkg.util import bundle_openapi_from_folders, get_papi_url
 from pkg.write_confirmation import WriteConfirmationMiddleware
 from service.cortex_mcp.server import create_mcp_server
 from usecase.module_util import discover_and_register_modules
+from version import __version__
 
 logger = logging.getLogger("Cortex MCP")
 
@@ -69,7 +65,29 @@ async def shutdown(sig: signal.Signals, loop: asyncio.AbstractEventLoop):
     loop.stop()
 
 
-async def async_main(transport: Transport):
+def csv_list(value: str) -> list[str]:
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def resolve_transport(transport: str) -> str:
+    """Return the FastMCP transport name.
+
+    ``http`` is the Streamable HTTP alias. ``sse`` is the retired HTTP+SSE
+    transport and is rejected before the server starts.
+    """
+    if transport == "stdio":
+        return "stdio"
+    if transport in {"streamable-http", "http"}:
+        return "streamable-http"
+    if transport == "sse":
+        raise ValueError(
+            "MCP_TRANSPORT=sse is not supported. The deprecated HTTP+SSE transport is not offered. "
+            "Use stdio or streamable-http."
+        )
+    raise ValueError(f"MCP_TRANSPORT={transport!r} is not supported. Use stdio or streamable-http.")
+
+
+async def async_main(transport: str):
     """
     Main async function that initializes and runs the Cortex MCP Server.
 
@@ -78,7 +96,7 @@ async def async_main(transport: Transport):
     and starts the server with the appropriate transport configuration.
 
     Args:
-        transport (Transport): The transport mechanism for the MCP server
+        transport (str): The transport mechanism for the MCP server
                               (e.g., 'stdio', 'streamable-http')
 
     Returns:
@@ -109,18 +127,27 @@ async def async_main(transport: Transport):
         )
 
     mcp = await initialize_mcp_server(api_key, api_key_id, papi_url, auth_token)
+    selected = resolve_transport(transport)
 
     # Start server with appropriate transport configuration
-    if transport == "stdio":
-        await mcp.run_async(transport=transport)
-    else:
-        # Use http stream or other transport with host/port configuration
-        await mcp.run_async(
-            transport=transport,
-            host=config.mcp_host,
-            port=config.mcp_port,
-            path=config.mcp_path,
-        )
+    if selected == "stdio":
+        await mcp.run_async(transport="stdio")
+        return
+
+    # Stateless Streamable HTTP: no protocol session and no standalone GET SSE stream.
+    # Hosts default to loopback so an Origin that matches a foreign Host is not
+    # treated as same-origin. The Docker image widens MCP_ALLOWED_HOSTS.
+    await mcp.run_http_async(
+        transport="streamable-http",
+        host=config.mcp_host,
+        port=config.mcp_port,
+        path=config.mcp_path,
+        stateless_http=True,
+        host_origin_protection=True,
+        allowed_hosts=csv_list(config.mcp_allowed_hosts),
+        allowed_origins=csv_list(config.mcp_allowed_origins),
+        middleware=[Middleware(ModernProtocolHeaderMiddleware)],
+    )
 
 
 def openapi_route_map(route, mcp_type):
@@ -136,9 +163,20 @@ def openapi_route_map(route, mcp_type):
 async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, auth_token: str = "") -> FastMCP:
     # Create MCP server instance with authentication
     mcp = create_mcp_server(api_key, api_key_id, auth_token)
-    # FastMCP runs the first middleware added first. The envelope must be outside
-    # write confirmation so a refusal is enveloped the same way as a tool result.
+    config = get_config()
+    # FastMCP runs the first middleware added first. The rate limit returns an
+    # isError tool result with the JSON envelope and does not count tools/list.
+    # The envelope is outside validation and write confirmation so a refusal or
+    # a schema failure is enveloped the same way as a tool result.
+    mcp.add_middleware(
+        ToolCallRateLimitMiddleware(
+            max_requests_per_second=config.tool_calls_per_second,
+            burst_capacity=config.tool_call_burst,
+            global_limit=True,
+        )
+    )
     mcp.add_middleware(ResponseEnvelopeMiddleware())
+    mcp.add_middleware(JsonSchemaInputMiddleware())
     mcp.add_middleware(WriteConfirmationMiddleware())
 
     # Discover mcp components from modules
@@ -157,8 +195,11 @@ async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, au
             timeout=300,
         ),
         route_map_fn=openapi_route_map,
+        mcp_component_fn=annotate_openapi_component,
+        strict_input_validation=True,
+        version=__version__,
     )
-    await mcp.import_server(server=open_api_mcp)
+    mcp.mount(open_api_mcp)
 
     return mcp
 

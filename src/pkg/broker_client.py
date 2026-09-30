@@ -1,7 +1,7 @@
 import logging
 import time
 
-import httpx
+import httpx2 as httpx
 
 from config.config import get_config
 

@@ -6,6 +6,13 @@ from fastmcp import FastMCP
 from fastmcp.resources import Resource
 from fastmcp.tools import Tool
 
+from pkg.tool_presentation import (
+    LOOSE_OBJECT_OUTPUT_SCHEMA,
+    annotations_for_description,
+    display_title,
+    return_structured_object,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,16 +78,24 @@ class BaseModule(ABC):
             description (str, optional): Description of the tool. If not provided,
                                        the function's docstring will be used.
 
-        Handwritten tools return JSON text. FastMCP's generated ``-> str`` schema
-        requires ``result``, and the MCP SDK rejects the envelope for missing it.
-        ``output_schema=None`` turns that check off, so the client receives the
-        mixed object. A write-tool refusal is a result of the same tool and takes
-        that path. OpenAPI tools are registered separately and keep their schemas.
+        Handwritten tools return JSON text. The published output schema is an
+        object that allows the response envelope, including ``_metadata``. The
+        function is wrapped so a JSON object string is returned as that object.
+        A generated ``-> str`` schema is not used, because it would require
+        ``result`` and reject the envelope.
 
         Example:
             self._add_tool(my_function, "A tool that does something useful")
         """
-        tool = Tool.from_function(fn, description, output_schema=None)
+        description_text = description if description is not None else (fn.__doc__ or "")
+        title = display_title(description=description_text)
+        tool = Tool.from_function(
+            return_structured_object(fn),
+            description=description,
+            title=title,
+            annotations=annotations_for_description(description_text),
+            output_schema=dict(LOOSE_OBJECT_OUTPUT_SCHEMA),
+        )
         self.mcp.add_tool(tool)
         logger.debug(f"Added tool: {tool.name}")
 

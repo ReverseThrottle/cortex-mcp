@@ -6,10 +6,10 @@ import os
 import re
 from pathlib import Path
 
-import httpx
+import httpx2 as httpx
 import pytest
 from fastmcp import FastMCP
-from fastmcp.experimental.server.openapi.routing import MCPType
+from fastmcp.server.providers.openapi.routing import MCPType
 
 from config.config import reload_config
 from entities.exceptions import PAPIResponseError
@@ -133,8 +133,13 @@ def feature_flags(monkeypatch):
     reload_config()
 
 
-def test_catalog_covers_documented_operations_without_credential_parameters(bundled_spec, openapi_server):
-    tools = openapi_server._tool_manager._tools
+async def _tool_map(server: FastMCP) -> dict:
+    return {tool.name: tool for tool in await server.list_tools()}
+
+
+@pytest.mark.asyncio
+async def test_catalog_covers_documented_operations_without_credential_parameters(bundled_spec, openapi_server):
+    tools = await _tool_map(openapi_server)
     assert len(tools) == 506
 
     descriptions = {name: (tool.description or "") for name, tool in tools.items()}
@@ -263,33 +268,38 @@ def test_existing_helpers_are_not_duplicated_in_the_catalog(bundled_spec):
     assert ("GET", "/public_api/v1/assets/{}") in present
 
 
-def test_python_tools_follow_the_write_and_isolate_flags(openapi_server, feature_flags):
+@pytest.mark.asyncio
+async def test_python_tools_follow_the_write_and_isolate_flags(openapi_server, feature_flags):
     feature_flags(write=False, isolate=False)
     read_only = FastMCP("read-only")
     discover_and_register_modules(read_only)
-    read_names = set(read_only._tool_manager._tools)
+    read_tools = await _tool_map(read_only)
+    read_names = set(read_tools)
     assert READ_ONLY_PYTHON_TOOLS <= read_names
     assert read_names.isdisjoint(WRITE_PYTHON_TOOLS)
     assert read_names.isdisjoint(ISOLATE_PYTHON_TOOLS)
-    stream = read_only._tool_manager._tools["post_xql_get_query_results_stream"]
+    stream = read_tools["post_xql_get_query_results_stream"]
     assert "Side effects: none" in (stream.description or "")
 
     feature_flags(write=True, isolate=False)
     writes = FastMCP("writes")
     discover_and_register_modules(writes)
-    write_names = set(writes._tool_manager._tools)
+    write_tools = await _tool_map(writes)
+    write_names = set(write_tools)
     assert WRITE_PYTHON_TOOLS <= write_names
     assert write_names.isdisjoint(ISOLATE_PYTHON_TOOLS)
-    assert "Side effects: this operation changes" in (writes._tool_manager._tools["update_case"].description or "")
-    assert "Side effects: none" in (writes._tool_manager._tools["get_cases"].description or "")
+    assert "Side effects: this operation changes" in (write_tools["update_case"].description or "")
+    assert "Side effects: none" in (write_tools["get_cases"].description or "")
 
     feature_flags(write=True, isolate=True)
     both = FastMCP("both")
     discover_and_register_modules(both)
-    both_names = set(both._tool_manager._tools)
+    both_names = set(await _tool_map(both))
+    catalog_names = set(await _tool_map(openapi_server))
     assert WRITE_PYTHON_TOOLS | ISOLATE_PYTHON_TOOLS | READ_ONLY_PYTHON_TOOLS <= both_names
-    assert both_names.isdisjoint(openapi_server._tool_manager._tools)
-    assert "Side effects:" in (both._tool_manager._tools["isolate_endpoint"].description or "")
+    assert both_names.isdisjoint(catalog_names)
+    isolate = (await _tool_map(both))["isolate_endpoint"]
+    assert "Side effects:" in (isolate.description or "")
 
 
 def test_openapi_route_map_hides_mutating_catalog_tools(feature_flags):
@@ -304,7 +314,10 @@ def test_openapi_route_map_hides_mutating_catalog_tools(feature_flags):
     text = Path(inspect.getsourcefile(initialize_mcp_server)).read_text()
     assert "route_map_fn=openapi_route_map" in text
     assert "timeout=300" in text
-    assert 'os.environ["FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER"] = "true"' in text
+    assert "from fastmcp.server.providers.openapi.routing import MCPType" in text
+    assert "stateless_http=True" in text
+    assert "host_origin_protection=True" in text
+    assert "FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER" not in text
 
 
 def test_fastmcp_debug_logs_stay_quiet():

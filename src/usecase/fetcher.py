@@ -171,5 +171,5 @@ async def get_fetcher(ctx: Context) -> Fetcher:
 
     logger.info("Creating a new Cortex API fetcher")
     fetcher = Fetcher(url, api_key, xdr_id, key_type=config.papi_key_type)
-    ctx.set_state("fetcher", fetcher)
+    await ctx.set_state("fetcher", fetcher, serializable=False)
     return fetcher

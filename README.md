@@ -148,11 +148,13 @@ All configuration is via environment variables (or a `.env` file in the project 
 
 | Variable | Default | Description |
 |---|---|---|
-| `MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http` |
-| `MCP_HOST` | `0.0.0.0` | Bind host (HTTP mode only) |
+| `MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http`. `http` is accepted as an alias of `streamable-http`. `sse` is rejected. |
+| `MCP_HOST` | `127.0.0.1` | Bind host (HTTP mode only). A local process stays on loopback. The Docker image sets `MCP_HOST=0.0.0.0` so a published port reaches the process. |
 | `MCP_PORT` | `8080` | Listen port (HTTP mode only) |
 | `MCP_PATH` | `/api/v1/stream/mcp` | URL path (HTTP mode only) |
 | `MCP_AUTH_TOKEN` | unset | Bearer token required from clients in HTTP mode (`Authorization: Bearer <token>`). Unauthenticated when unset — only safe for local/stdio use. |
+| `MCP_ALLOWED_HOSTS` | `127.0.0.1,localhost,::1` | Comma-separated Host allowlist. Loopback is the default so an Origin that repeats a foreign Host is rejected. The Docker image sets `*` so a proxy hostname is accepted. |
+| `MCP_ALLOWED_ORIGINS` | unset | Comma-separated browser origins. A missing Origin is allowed. A present Origin that is not on this list, and is not the same origin or loopback, is rejected with 403. |
 
 ### Optional — feature flags
 
@@ -171,6 +173,8 @@ All configuration is via environment variables (or a `.env` file in the project 
 | `MAX_OBJECTS_TO_RETRIEVE` | `50` | Default page size for list operations |
 | `CORTEX_MCP_RESPONSE_ERROR_MAX_SIZE` | `1000` | Max characters of error detail returned to the LLM |
 | `CORTEX_MCP_MAX_RETRIES` | `3` | Extra attempts after the first request when the Cortex call fails to connect or returns HTTP 429 or 503 |
+| `MCP_TOOL_CALLS_PER_SECOND` | `10` | Sustained `tools/call` rate for the whole process. `tools/list` is not counted. |
+| `MCP_TOOL_CALL_BURST` | `20` | Maximum `tools/call` burst before the limit returns an error. |
 
 ### Optional — on-appliance Broker VM
 
@@ -246,7 +250,11 @@ request, or they get `401`. Set this for any deployment reachable over a network
 That bearer token authenticates the MCP client to this server. It is not forwarded
 to Cortex. Tenant API credentials stay in the server environment.
 
-`streamable-http` is the remote transport. The server does not expose the deprecated HTTP+SSE transport.
+`streamable-http` is the remote transport. It is stateless: there is no MCP session id and no standalone GET event stream. `MCP_TRANSPORT=sse` (the deprecated HTTP+SSE transport) is rejected at startup. `http` selects the same Streamable HTTP endpoint.
+
+A local process binds `127.0.0.1`. The Docker image sets `MCP_HOST=0.0.0.0` and `MCP_ALLOWED_HOSTS=*` so `docker run -p 8080:8080` and the Fly `internal_port` reach the server and the proxy's Host header is accepted. An env file that sets `MCP_HOST=127.0.0.1` or the loopback allowlist overrides that. Leave both unset in a container env file unless you intend to replace the image values.
+
+Browser requests that send an `Origin` header are checked. A missing `Origin` is allowed for non-browser clients. The default Host allowlist is loopback, so a page that sends `Host: evil.example` and `Origin: http://evil.example` is rejected. Set `MCP_ALLOWED_ORIGINS` when a browser origin is not the same host the server sees.
 
 A health-check endpoint is also available at `GET /ping/` (unauthenticated).
 

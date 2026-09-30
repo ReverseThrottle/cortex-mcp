@@ -1,11 +1,13 @@
 import base64
 import json
 import os
+from typing import Any, cast
 
 import pytest
 from fastmcp.server.elicitation import AcceptedElicitation, DeclinedElicitation
 from fastmcp.server.middleware import MiddlewareContext
-from mcp.types import CallToolRequestParams
+from fastmcp.tools import InputRequiredToolResult
+from mcp.types import CallToolRequestParams, ElicitResult
 
 from config.config import reload_config
 from pkg.write_confirmation import (
@@ -64,7 +66,7 @@ def _call_context(description: str, supports: bool = True, confirm: bool | None 
     ctx = _Context(description, supports, confirm, action)
     context = MiddlewareContext(
         message=CallToolRequestParams(name="update_case", arguments={}),
-        fastmcp_context=ctx,
+        fastmcp_context=cast(Any, ctx),
         method="tools/call",
         type="request",
     )
@@ -147,6 +149,7 @@ async def test_elicitation_does_not_run_a_write_without_confirmation(elicitation
 
     declined, _ = _call_context(description, confirm=False)
     refused = await middleware.on_call_tool(declined, call_next)
+    assert refused.is_error is True
     assert "not confirmed" in refused.content[0].text
 
     cancelled, _ = _call_context(description, action="decline")
@@ -155,6 +158,72 @@ async def test_elicitation_does_not_run_a_write_without_confirmation(elicitation
 
     unsupported, _ = _call_context(description, supports=False)
     refused = await middleware.on_call_tool(unsupported, call_next)
+    assert refused.is_error is True
+    assert "does not support" in refused.content[0].text
+
+
+class _ModernContext:
+    def __init__(self, responses=None, supports: bool | None = None):
+        self.fastmcp = _Server("Side effects: this operation changes tenant state")
+        self.request_context = object()
+        self.elicited = False
+        self.input_responses = responses
+        self._supports = supports
+
+    def _is_modern_protocol(self) -> bool:
+        return True
+
+    @property
+    def session(self):
+        if self._supports is None:
+            raise RuntimeError("no session")
+        return _Session(self._supports)
+
+    async def elicit(self, message: str, response_type):
+        raise AssertionError("modern protocol must not use the elicitation back-channel")
+
+
+def _modern_context(responses=None, supports: bool | None = None):
+    ctx = _ModernContext(responses, supports)
+    context = MiddlewareContext(
+        message=CallToolRequestParams(name="update_case", arguments={}),
+        fastmcp_context=cast(Any, ctx),
+        method="tools/call",
+        type="request",
+    )
+    return context, ctx
+
+
+@pytest.mark.asyncio
+async def test_modern_protocol_asks_then_honors_the_retried_confirmation(elicitation):
+    elicitation(True)
+    middleware = WriteConfirmationMiddleware()
+
+    async def call_next(seen):
+        return "wrote"
+
+    asked, ctx = _modern_context()
+    pending = await middleware.on_call_tool(asked, call_next)
+    assert isinstance(pending, InputRequiredToolResult)
+    assert ctx.elicited is False
+
+    accepted = ElicitResult(action="accept", content={"confirm": True})
+    confirmed, _ = _modern_context({"confirm_write": accepted})
+    assert await middleware.on_call_tool(confirmed, call_next) == "wrote"
+
+    declined = ElicitResult(action="decline")
+    refused_context, _ = _modern_context({"confirm_write": declined})
+
+    async def must_not_run(seen):
+        raise AssertionError("the tool ran")
+
+    refused = await middleware.on_call_tool(refused_context, must_not_run)
+    assert refused.is_error is True
+    assert "not confirmed" in refused.content[0].text
+
+    blocked, _ = _modern_context(supports=False)
+    refused = await middleware.on_call_tool(blocked, must_not_run)
+    assert refused.is_error is True
     assert "does not support" in refused.content[0].text
 
 
