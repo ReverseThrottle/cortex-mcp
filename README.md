@@ -250,7 +250,7 @@ request, or they get `401`. Set this for any deployment reachable over a network
 That bearer token authenticates the MCP client to this server. It is not forwarded
 to Cortex. Tenant API credentials stay in the server environment.
 
-`streamable-http` is the remote transport. It is stateless: there is no MCP session id and no standalone GET event stream. `MCP_TRANSPORT=sse` (the deprecated HTTP+SSE transport) is rejected at startup. `http` selects the same Streamable HTTP endpoint.
+`streamable-http` is the remote transport. The MCP handler is stateless: it does not mint an `Mcp-Session-Id`, and there is no standalone GET event stream. An adapter in front of that endpoint accepts `initialize` and Portkey's `session.initialize` (empty or omitted params included), defaults a missing `protocolVersion`, and stores an `Mcp-Session-Id`. Later requests must send that id. An id expires after 30 minutes without a successful use, and the store drops the oldest idle ids past 10,000. `DELETE` stays `405`. The adapter forwards `tools/list` and `tools/call` to the stateless handler and does not map the id onto an upstream session. `Authorization: Bearer` is left in place; a missing bearer is still `401` and does not create a session. `MCP_TRANSPORT=sse` (the deprecated HTTP+SSE transport) is rejected at startup. `http` selects the same Streamable HTTP endpoint.
 
 A local process binds `127.0.0.1`. The Docker image sets `MCP_HOST=0.0.0.0` and `MCP_ALLOWED_HOSTS=*` so `docker run -p 8080:8080` and the Fly `internal_port` reach the server and the proxy's Host header is accepted. An env file that sets `MCP_HOST=127.0.0.1` or the loopback allowlist overrides that. Leave both unset in a container env file unless you intend to replace the image values.
 
