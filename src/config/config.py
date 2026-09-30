@@ -5,6 +5,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from pkg.util import REMOTE_DIR
 
+# Loopback only. "*" would make every Host legal, and strict origin checks
+# still treat an Origin whose host equals that Host as same-origin.
+DEFAULT_MCP_ALLOWED_HOSTS = "127.0.0.1,localhost,::1"
+
 
 class Settings(BaseSettings):
     """
@@ -18,10 +22,9 @@ class Settings(BaseSettings):
     mcp_port: int = Field(8080, validation_alias="MCP_PORT")
     mcp_path: str = Field("/api/v1/stream/mcp", validation_alias="MCP_PATH")
     mcp_auth_token: str = Field("", validation_alias="MCP_AUTH_TOKEN")
-    # "*" accepts the public Host header a container or Fly proxy sends.
-    # Origin is still checked. An empty origin list allows a missing Origin
-    # and same-origin or loopback browser calls.
-    mcp_allowed_hosts: str = Field("*", validation_alias="MCP_ALLOWED_HOSTS")
+    # Loopback hosts. A wildcard Host list lets a DNS-rebinding Origin through
+    # when it matches Host. The Docker image widens this for a published port.
+    mcp_allowed_hosts: str = Field(DEFAULT_MCP_ALLOWED_HOSTS, validation_alias="MCP_ALLOWED_HOSTS")
     mcp_allowed_origins: str = Field("", validation_alias="MCP_ALLOWED_ORIGINS")
     tool_calls_per_second: float = Field(10.0, validation_alias="MCP_TOOL_CALLS_PER_SECOND")
     tool_call_burst: int = Field(20, validation_alias="MCP_TOOL_CALL_BURST")

@@ -5,11 +5,13 @@ import json
 import httpx2
 import pytest
 from fastmcp import Client, FastMCP
-from mcp.types import LATEST_PROTOCOL_VERSION
+from mcp.types import HEADER_MISMATCH, LATEST_PROTOCOL_VERSION
+from starlette.middleware import Middleware
 
-from config.config import Settings
+from config.config import DEFAULT_MCP_ALLOWED_HOSTS, Settings
 from main import resolve_transport
 from pkg.input_validation import JsonSchemaInputMiddleware
+from pkg.protocol_header import ModernProtocolHeaderMiddleware
 from pkg.response_envelope import ResponseEnvelopeMiddleware
 from pkg.tool_rate_limit import ToolCallRateLimitMiddleware
 from pkg.util import create_response
@@ -22,6 +24,8 @@ def test_package_speaks_the_july_2026_revision():
     assert LATEST_PROTOCOL_VERSION == "2026-07-28"
     assert __version__ == "2.0.0"
     assert Settings.model_fields["mcp_host"].default == "127.0.0.1"
+    assert Settings.model_fields["mcp_allowed_hosts"].default == DEFAULT_MCP_ALLOWED_HOSTS
+    assert DEFAULT_MCP_ALLOWED_HOSTS == "127.0.0.1,localhost,::1"
 
 
 def test_sse_transport_is_rejected():
@@ -115,10 +119,16 @@ async def test_tool_call_rate_limit_does_not_count_tools_list():
     server.add_tool(ping)
     async with Client(server) as client:
         await client.list_tools()
-        await client.call_tool("ping", {})
+        await client.call_tool_mcp("ping", {})
         await client.list_tools()
-        with pytest.raises(Exception, match="[Rr]ate limit"):
-            await client.call_tool("ping", {})
+        limited = await client.call_tool_mcp("ping", {})
+
+    assert limited.is_error is True
+    body = json.loads(limited.content[0].text)
+    assert body["success"] == "false"
+    assert "rate limit" in body["error"].lower()
+    assert body["_metadata"]["formatting_instructions"]
+    assert limited.structured_content == body
 
 
 @pytest.mark.asyncio
@@ -128,8 +138,9 @@ async def test_streamable_http_has_no_get_stream_and_checks_origin():
         path="/mcp",
         stateless_http=True,
         host_origin_protection=True,
-        allowed_hosts=["*"],
+        allowed_hosts=DEFAULT_MCP_ALLOWED_HOSTS.split(","),
         allowed_origins=[],
+        middleware=[Middleware(ModernProtocolHeaderMiddleware)],
     )
     headers = {
         "accept": "application/json, text/event-stream",
@@ -159,6 +170,16 @@ async def test_streamable_http_has_no_get_stream_and_checks_origin():
                 json=body,
             )
             get_stream = await client.get("/mcp", headers={"accept": "text/event-stream"})
+            rebound = await client.post(
+                "/mcp",
+                headers={**headers, "host": "evil.example", "origin": "http://evil.example"},
+                json=body,
+            )
+            mixed = await client.post(
+                "/mcp",
+                headers={**headers, "mcp-protocol-version": "2025-06-18"},
+                json=body,
+            )
 
     assert missing_origin.status_code == 200
     assert "mcp-session-id" not in {key.lower() for key in missing_origin.headers}
@@ -168,3 +189,8 @@ async def test_streamable_http_has_no_get_stream_and_checks_origin():
     assert payload["result"]["cacheScope"] == "private"
     assert forbidden.status_code == 403
     assert get_stream.status_code == 405
+    assert rebound.status_code == 421
+    assert mixed.status_code == 400
+    mixed_body = mixed.json()
+    assert mixed_body["error"]["code"] == HEADER_MISMATCH
+    assert "result" not in mixed_body

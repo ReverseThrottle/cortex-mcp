@@ -3,10 +3,12 @@ FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV POETRY_VERSION=2.2.0
-# The process default is 127.0.0.1. A published container port only works
-# when the server listens on every interface inside the container.
+# The process default is 127.0.0.1 and a loopback Host allowlist. A published
+# container port needs every interface, and the proxy's public Host must be
+# legal or the request is rejected before it reaches the server.
 ENV MCP_HOST=0.0.0.0
 ENV MCP_PORT=8080
+ENV MCP_ALLOWED_HOSTS=*
 
 WORKDIR /app
 

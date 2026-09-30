@@ -16,10 +16,12 @@ from functools import partial
 
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi.routing import MCPType
+from starlette.middleware import Middleware
 
 from config.config import get_config
 from pkg.client import PAPIClient
 from pkg.input_validation import JsonSchemaInputMiddleware
+from pkg.protocol_header import ModernProtocolHeaderMiddleware
 from pkg.response_envelope import ResponseEnvelopeMiddleware
 from pkg.setup_logging import setup_logging
 from pkg.tool_presentation import annotate_openapi_component
@@ -133,8 +135,8 @@ async def async_main(transport: str):
         return
 
     # Stateless Streamable HTTP: no protocol session and no standalone GET SSE stream.
-    # host_origin_protection validates Origin. allowed_hosts defaults to "*" so a
-    # container bound to 0.0.0.0 still accepts the public Host header.
+    # Hosts default to loopback so an Origin that matches a foreign Host is not
+    # treated as same-origin. The Docker image widens MCP_ALLOWED_HOSTS.
     await mcp.run_http_async(
         transport="streamable-http",
         host=config.mcp_host,
@@ -144,6 +146,7 @@ async def async_main(transport: str):
         host_origin_protection=True,
         allowed_hosts=csv_list(config.mcp_allowed_hosts),
         allowed_origins=csv_list(config.mcp_allowed_origins),
+        middleware=[Middleware(ModernProtocolHeaderMiddleware)],
     )
 
 
@@ -161,10 +164,10 @@ async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, au
     # Create MCP server instance with authentication
     mcp = create_mcp_server(api_key, api_key_id, auth_token)
     config = get_config()
-    # FastMCP runs the first middleware added first. Rate limiting is outside
-    # the envelope so an excess call is a protocol error. The envelope is
-    # outside validation and write confirmation so a refusal or a schema
-    # failure is enveloped the same way as a tool result.
+    # FastMCP runs the first middleware added first. The rate limit returns an
+    # isError tool result with the JSON envelope and does not count tools/list.
+    # The envelope is outside validation and write confirmation so a refusal or
+    # a schema failure is enveloped the same way as a tool result.
     mcp.add_middleware(
         ToolCallRateLimitMiddleware(
             max_requests_per_second=config.tool_calls_per_second,
