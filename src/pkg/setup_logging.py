@@ -68,6 +68,7 @@ def configure_library_logging():
         "mcp.server.streamable_http_manager",
         "sse_starlette.sse",
         "httpx",
+        "httpx2",
         "httpcore",
         "httpcore.http11",
         "httpcore.connection",

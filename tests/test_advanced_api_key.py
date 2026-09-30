@@ -1,6 +1,6 @@
 import hashlib
 
-import httpx
+import httpx2 as httpx
 import pytest
 
 from pkg.client import PAPIClient

@@ -6,8 +6,8 @@ import random
 from json import JSONDecodeError
 from typing import Literal, assert_never
 
-import httpx
-from httpx import ConnectError, RequestError, TimeoutException
+import httpx2 as httpx
+from httpx2 import ConnectError, RequestError, TimeoutException
 
 from config.config import get_config
 from entities.exceptions import (

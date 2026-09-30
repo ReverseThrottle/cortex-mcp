@@ -1,7 +1,7 @@
 import zipfile
 from io import BytesIO
 
-import httpx
+import httpx2 as httpx
 import pytest
 
 from pkg.client import PAPIClient

@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from fastmcp.exceptions import NotFoundError
 from fastmcp.server.elicitation import (
@@ -7,8 +8,15 @@ from fastmcp.server.elicitation import (
     DeclinedElicitation,
 )
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-from fastmcp.tools.tool import ToolResult
-from mcp.types import ClientCapabilities, ElicitationCapability
+from fastmcp.tools import InputRequiredToolResult, ToolResult
+from mcp.types import (
+    ClientCapabilities,
+    ElicitationCapability,
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitResult,
+    InputRequiredResult,
+)
 from pydantic import BaseModel, Field
 
 from config.config import get_config
@@ -19,6 +27,7 @@ logger = logging.getLogger(__name__)
 _CHANGES_STATE = "Side effects: this operation changes"
 _CREATES_STATE = "Side effects: this operation creates"
 _READ_ONLY = "Side effects: none"
+_CONFIRM_ID = "confirm_write"
 
 
 class WriteConfirmation(BaseModel):
@@ -38,7 +47,81 @@ def changes_tenant_state(description: str | None) -> bool:
 
 
 def _refused(reason: str) -> ToolResult:
-    return ToolResult(content=create_response(data={"error": reason}, is_error=True))
+    return ToolResult(
+        content=create_response(data={"error": reason}, is_error=True),
+        is_error=True,
+    )
+
+
+def _is_modern_protocol(ctx: Any) -> bool:
+    checker = getattr(ctx, "_is_modern_protocol", None)
+    if not callable(checker):
+        return False
+    return bool(checker())
+
+
+def _elicitation_supported(ctx: Any) -> bool | None:
+    """True or false when the client advertised elicitation. None when that is unknown."""
+    try:
+        session = ctx.session
+    except Exception:
+        return None
+    if session is None:
+        return None
+    try:
+        return bool(session.check_client_capability(ClientCapabilities(elicitation=ElicitationCapability())))
+    except Exception:
+        return None
+
+
+def _confirmation_message(tool_name: str) -> str:
+    return (
+        f"{tool_name} changes Cortex tenant state. "
+        "Set confirm to true to run it. Set confirm to false to leave the tenant unchanged."
+    )
+
+
+def _confirmation_schema() -> dict:
+    description = WriteConfirmation.model_fields["confirm"].description or ""
+    return {
+        "type": "object",
+        "properties": {
+            "confirm": {
+                "type": "boolean",
+                "description": description,
+            }
+        },
+        "required": ["confirm"],
+    }
+
+
+def _ask_for_confirmation(tool_name: str) -> InputRequiredToolResult:
+    """2026-07-28 has no server-initiated elicitation back-channel. Ask with SEP-2322."""
+    return InputRequiredToolResult(
+        InputRequiredResult(
+            input_requests={
+                _CONFIRM_ID: ElicitRequest(
+                    params=ElicitRequestFormParams(
+                        message=_confirmation_message(tool_name),
+                        requested_schema=_confirmation_schema(),
+                    )
+                )
+            }
+        )
+    )
+
+
+def _modern_confirmation(responses: Any) -> bool | None:
+    """True runs the tool, False refuses, None means the client has not answered yet."""
+    if not isinstance(responses, dict) or _CONFIRM_ID not in responses:
+        return None
+    answer = responses[_CONFIRM_ID]
+    if not isinstance(answer, ElicitResult) or answer.action != "accept":
+        return False
+    content = answer.content
+    if not isinstance(content, dict):
+        return False
+    return bool(content.get("confirm"))
 
 
 class WriteConfirmationMiddleware(Middleware):
@@ -66,21 +149,29 @@ class WriteConfirmationMiddleware(Middleware):
         except NotFoundError:
             return await call_next(context)
 
-        if not changes_tenant_state(tool.description):
+        if tool is None or not changes_tenant_state(tool.description):
             return await call_next(context)
 
-        if ctx.request_context is None or not ctx.session.check_client_capability(
-            ClientCapabilities(elicitation=ElicitationCapability())
-        ):
-            return _refused(
-                f"{tool_name} changes Cortex tenant state. MCP elicitation is enabled, "
-                "but this client does not support it, so the operation was not run."
-            )
-
-        message = (
-            f"{tool_name} changes Cortex tenant state. "
-            "Set confirm to true to run it. Set confirm to false to leave the tenant unchanged."
+        unsupported = (
+            f"{tool_name} changes Cortex tenant state. MCP elicitation is enabled, "
+            "but this client does not support it, so the operation was not run."
         )
+        supported = _elicitation_supported(ctx)
+
+        if _is_modern_protocol(ctx):
+            if supported is False:
+                return _refused(unsupported)
+            decision = _modern_confirmation(getattr(ctx, "input_responses", None))
+            if decision is None:
+                return _ask_for_confirmation(tool_name)
+            if not decision:
+                return _refused(f"{tool_name} was not confirmed, so the operation was not run.")
+            return await call_next(context)
+
+        if ctx.request_context is None or not supported:
+            return _refused(unsupported)
+
+        message = _confirmation_message(tool_name)
         try:
             result = await ctx.elicit(message, WriteConfirmation)  # type: ignore[arg-type]
         except Exception:

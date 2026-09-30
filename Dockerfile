@@ -3,7 +3,10 @@ FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV POETRY_VERSION=2.2.0
-ENV FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER=true
+# The process default is 127.0.0.1. A published container port only works
+# when the server listens on every interface inside the container.
+ENV MCP_HOST=0.0.0.0
+ENV MCP_PORT=8080
 
 WORKDIR /app
 

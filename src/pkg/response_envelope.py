@@ -2,7 +2,7 @@ import json
 from typing import Any
 
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools import InputRequiredToolResult, ToolResult
 from mcp.types import TextContent
 
 from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
@@ -105,8 +105,17 @@ def _envelope_text(text: str) -> tuple[str, dict | None]:
     return _dump(enveloped), enveloped
 
 
+def _envelope_failed(payload: dict | None) -> bool:
+    return isinstance(payload, dict) and payload.get("success") == "false"
+
+
 def envelope_tool_result(result: ToolResult) -> ToolResult:
-    """Apply the response envelope to the text the model reads and to structured content."""
+    """Apply the response envelope to the text the model reads and to structured content.
+
+    A JSON envelope with ``success`` ``"false"`` is a tool error. Write-confirmation
+    refusals and handwritten failures use that field and are returned with
+    ``isError`` true. The JSON body stays the same envelope.
+    """
     structured = result.structured_content
     enveloped_structured = apply_response_envelope(structured) if isinstance(structured, dict) else None
 
@@ -130,7 +139,16 @@ def envelope_tool_result(result: ToolResult) -> ToolResult:
     if structured_out is None and len(json_objects) == 1 and len(new_content) == 1:
         structured_out = json_objects[0]
 
-    return ToolResult(content=new_content, structured_content=structured_out, meta=result.meta)
+    is_error = result.is_error or _envelope_failed(structured_out)
+    if not is_error and any(_envelope_failed(obj) for obj in json_objects):
+        is_error = True
+
+    return ToolResult(
+        content=new_content,
+        structured_content=structured_out,
+        meta=result.meta,
+        is_error=is_error,
+    )
 
 
 class ResponseEnvelopeMiddleware(Middleware):
@@ -146,6 +164,8 @@ class ResponseEnvelopeMiddleware(Middleware):
         call_next: CallNext,
     ) -> Any:
         result = await call_next(context)
+        if isinstance(result, InputRequiredToolResult):
+            return result
         if not isinstance(result, ToolResult):
             return result
         return envelope_tool_result(result)

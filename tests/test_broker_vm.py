@@ -2,7 +2,7 @@ import base64
 import json
 import os
 
-import httpx
+import httpx2 as httpx
 import pytest
 from fastmcp import FastMCP
 
@@ -74,7 +74,8 @@ def test_broker_url_requires_https():
         broker_base_url("http://broker.example")
 
 
-def test_broker_tools_change_state_and_register_only_with_writes(server_settings):
+@pytest.mark.asyncio
+async def test_broker_tools_change_state_and_register_only_with_writes(server_settings):
     for tool in _BROKER_TOOLS:
         assert changes_tenant_state(tool.__doc__)
         assert "Side effects: none" not in (tool.__doc__ or "")
@@ -82,13 +83,14 @@ def test_broker_tools_change_state_and_register_only_with_writes(server_settings
     server_settings(MCP_WRITE_TOOLS_ENABLED="false")
     hidden = FastMCP("hidden")
     discover_and_register_modules(hidden)
-    hidden_names = set(hidden._tool_manager._tools)
+    hidden_names = {tool.name for tool in await hidden.list_tools()}
     assert {tool.__name__ for tool in _BROKER_TOOLS}.isdisjoint(hidden_names)
 
     server_settings(MCP_WRITE_TOOLS_ENABLED="true")
     shown = FastMCP("shown")
     discover_and_register_modules(shown)
-    assert {tool.__name__ for tool in _BROKER_TOOLS} <= set(shown._tool_manager._tools)
+    shown_names = {tool.name for tool in await shown.list_tools()}
+    assert {tool.__name__ for tool in _BROKER_TOOLS} <= shown_names
 
 
 @pytest.mark.asyncio
