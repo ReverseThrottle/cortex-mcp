@@ -1,10 +1,12 @@
 """Protocol checks that do not call a Cortex tenant."""
 
+import asyncio
 import json
 
 import httpx2
 import pytest
 from fastmcp import Client, FastMCP
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE
 from mcp.types import HEADER_MISMATCH, LATEST_PROTOCOL_VERSION
 from starlette.middleware import Middleware
 
@@ -194,3 +196,118 @@ async def test_streamable_http_has_no_get_stream_and_checks_origin():
     mixed_body = mixed.json()
     assert mixed_body["error"]["code"] == HEADER_MISMATCH
     assert "result" not in mixed_body
+
+
+def _http_scope(content_length: int) -> dict:
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/mcp",
+        "raw_path": b"/mcp",
+        "query_string": b"",
+        "headers": [
+            (b"host", b"127.0.0.1"),
+            (b"accept", b"application/json, text/event-stream"),
+            (b"content-type", b"application/json"),
+            (b"content-length", str(content_length).encode("ascii")),
+            (b"mcp-protocol-version", b"2026-07-28"),
+            (b"mcp-method", b"tools/call"),
+            (b"mcp-name", b"hold_open"),
+        ],
+        "client": ("127.0.0.1", 123),
+        "server": ("127.0.0.1", 80),
+        "root_path": "",
+    }
+
+
+@pytest.mark.asyncio
+async def test_declared_oversize_post_is_rejected_before_the_body_is_read():
+    server = create_mcp_server("test-key", "1")
+    app = server.http_app(
+        path="/mcp",
+        stateless_http=True,
+        host_origin_protection=True,
+        allowed_hosts=DEFAULT_MCP_ALLOWED_HOSTS.split(","),
+        allowed_origins=[],
+        middleware=[Middleware(ModernProtocolHeaderMiddleware)],
+    )
+    reads = 0
+
+    async def receive():
+        nonlocal reads
+        reads += 1
+        raise AssertionError("oversized request body was read")
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    async with app.router.lifespan_context(app):
+        await app(_http_scope(DEFAULT_MAX_REQUEST_BODY_SIZE + 1), receive, send)
+
+    assert sent[0]["status"] == 413
+    assert sent[1]["body"] == b"Request body too large"
+    assert reads == 0
+
+
+@pytest.mark.asyncio
+async def test_client_disconnect_cancels_an_in_flight_tool_call():
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def hold_open() -> str:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+        return "done"
+
+    server = create_mcp_server("test-key", "1")
+    server.add_tool(hold_open)
+    app = server.http_app(
+        path="/mcp",
+        stateless_http=True,
+        host_origin_protection=True,
+        allowed_hosts=DEFAULT_MCP_ALLOWED_HOSTS.split(","),
+        allowed_origins=[],
+        middleware=[Middleware(ModernProtocolHeaderMiddleware)],
+    )
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "hold_open",
+                "arguments": {},
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": {"name": "conformance", "version": "0"},
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                },
+            },
+        }
+    ).encode()
+    sent_body = False
+
+    async def receive():
+        nonlocal sent_body
+        if not sent_body:
+            sent_body = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        await started.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        return None
+
+    async with app.router.lifespan_context(app):
+        await asyncio.wait_for(app(_http_scope(len(body)), receive, send), timeout=2)
+
+    assert started.is_set()
+    assert cancelled.is_set()
