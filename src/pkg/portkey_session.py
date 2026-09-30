@@ -11,8 +11,10 @@ import asyncio
 import contextlib
 import hmac
 import json
+import math
+import time
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 from uuid import uuid4
 
@@ -29,6 +31,10 @@ _DEFAULT_CLIENT_INFO = {"name": "mcp", "version": "0"}
 _MISSING_SESSION = "Bad Request: Missing session ID"
 _UNKNOWN_SESSION = "Not Found: Invalid or expired session ID"
 _BODY_TOO_LARGE = "Request body too large"
+# Same idle window and ceiling the SDK uses for a stateful session. This store
+# is the adapter's, not the stateless handler's.
+_DEFAULT_IDLE_TIMEOUT = 30 * 60
+_DEFAULT_MAX_SESSIONS = 10_000
 
 
 def _header(scope: Scope, name: str) -> str | None:
@@ -251,13 +257,35 @@ def _session_error(message: str, status_code: int) -> JSONResponse:
 
 
 class PortkeySessionAdapter:
-    """Store a Portkey ``Mcp-Session-Id`` and require it after initialize."""
+    """Store a Portkey ``Mcp-Session-Id`` and require it after initialize.
 
-    def __init__(self, app: ASGIApp, path: str, auth_token: str = "") -> None:
+    Each id lives for ``idle_timeout`` seconds after its last successful use.
+    A later request that presents a live id refreshes that deadline. Past
+    ``max_sessions``, the oldest idle id is dropped so an active one stays.
+    """
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        path: str,
+        auth_token: str = "",
+        *,
+        idle_timeout: float = _DEFAULT_IDLE_TIMEOUT,
+        max_sessions: int = _DEFAULT_MAX_SESSIONS,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
+        if not (math.isfinite(idle_timeout) and idle_timeout > 0):
+            raise ValueError("idle_timeout must be a positive, finite number of seconds")
+        if max_sessions <= 0:
+            raise ValueError("max_sessions must be a positive number of sessions")
         self.app = app
         self.path = path
         self.auth_token = auth_token
-        self._sessions: set[str] = set()
+        self._idle_timeout = idle_timeout
+        self._max_sessions = max_sessions
+        self._clock = time.monotonic if clock is None else clock
+        # Insertion order is least-recently-used. A successful use moves the id to the end.
+        self._sessions: dict[str, float] = {}
 
     def _on_mcp_path(self, scope: Scope) -> bool:
         if scope.get("type") != "http" or scope.get("method") != "POST":
@@ -294,18 +322,49 @@ class PortkeySessionAdapter:
         if session_id is None or not session_id:
             await _session_error(_MISSING_SESSION, 400)(scope, receive, send)
             return
-        if session_id not in self._sessions:
+        if not self._accept(session_id):
             await _session_error(_UNKNOWN_SESSION, 404)(scope, receive, send)
             return
 
         forwarded = _replace_headers(scope, {}, drop=frozenset({_SESSION_HEADER}))
         await self.app(forwarded, _replay(payload, receive), send)
 
+    def _purge(self, now: float) -> None:
+        expired = [
+            session_id for session_id, last_used in self._sessions.items() if now - last_used >= self._idle_timeout
+        ]
+        for session_id in expired:
+            del self._sessions[session_id]
+
+    def _trim(self) -> None:
+        overflow = len(self._sessions) - self._max_sessions
+        if overflow <= 0:
+            return
+        for session_id in list(self._sessions)[:overflow]:
+            del self._sessions[session_id]
+
+    def _remember(self, session_id: str) -> None:
+        now = self._clock()
+        self._purge(now)
+        self._sessions.pop(session_id, None)
+        self._sessions[session_id] = now
+        self._trim()
+
+    def _accept(self, session_id: str) -> bool:
+        """Refresh a live id. An unknown or idle id is not a successful use."""
+        now = self._clock()
+        self._purge(now)
+        if session_id not in self._sessions:
+            return False
+        del self._sessions[session_id]
+        self._sessions[session_id] = now
+        return True
+
     async def _initialize(self, scope: Scope, body: dict[str, Any], receive: Receive, send: Send) -> None:
         forwarded, payload = _prepare_initialize(scope, body)
         status, headers, response = await _exchange(self.app, forwarded, _replay(payload, receive))
         if _initialize_succeeded(status, headers, response):
             session_id = uuid4().hex
-            self._sessions.add(session_id)
+            self._remember(session_id)
             headers = _with_session(headers, session_id)
         await _send_response(send, status, headers, response)

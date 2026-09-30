@@ -119,6 +119,50 @@ def _adapter(upstream: _Upstream, auth_token: str = "") -> PortkeySessionAdapter
     return PortkeySessionAdapter(upstream, path="/mcp", auth_token=auth_token)
 
 
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _session_adapter(
+    upstream: _Upstream,
+    clock: _Clock,
+    *,
+    idle_timeout: float,
+    max_sessions: int,
+) -> PortkeySessionAdapter:
+    return PortkeySessionAdapter(
+        upstream,
+        path="/mcp",
+        idle_timeout=idle_timeout,
+        max_sessions=max_sessions,
+        clock=clock,
+    )
+
+
+async def _open_session(adapter: PortkeySessionAdapter, request_id: int) -> str:
+    opened = await _post(
+        adapter,
+        {"jsonrpc": "2.0", "id": request_id, "method": "session.initialize", "params": {}},
+        _headers(),
+    )
+    session_id = _session_id(opened)
+    assert opened.status_code == 200
+    assert session_id
+    return session_id
+
+
+async def _list_with(adapter: PortkeySessionAdapter, session_id: str, request_id: int) -> httpx2.Response:
+    return await _post(
+        adapter,
+        {"jsonrpc": "2.0", "id": request_id, "method": "tools/list", "params": {}},
+        _headers(**{"mcp-session-id": session_id}),
+    )
+
+
 async def _post(app, body: dict, headers: dict[str, str]) -> httpx2.Response:
     transport = httpx2.ASGITransport(app=app)
     async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
@@ -680,3 +724,89 @@ async def test_client_disconnect_still_cancels_an_in_flight_tool_call():
 
     assert started.is_set()
     assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_idle_session_expires_and_a_used_session_stays_valid():
+    clock = _Clock()
+    upstream = _Upstream()
+    adapter = _session_adapter(upstream, clock, idle_timeout=30, max_sessions=10)
+    abandoned = await _open_session(adapter, 1)
+
+    clock.now = 30
+    expired = await _list_with(adapter, abandoned, 2)
+    assert expired.status_code == 404
+    assert expired.json()["error"]["code"] == -32600
+    assert "session ID" in expired.json()["error"]["message"]
+    assert _session_id(expired) is None
+    assert len(upstream.calls) == 1
+
+    clock.now = 100
+    active = await _open_session(adapter, 3)
+    clock.now = 129
+    refreshed = await _list_with(adapter, active, 4)
+    assert refreshed.status_code == 200
+    assert _result(refreshed)["tools"][0]["name"] == "ping"
+    assert "mcp-session-id" not in upstream.calls[-1]["headers"]
+
+    clock.now = 158
+    still_valid = await _list_with(adapter, active, 5)
+    assert still_valid.status_code == 200
+
+    clock.now = 188
+    idle_again = await _list_with(adapter, active, 6)
+    assert idle_again.status_code == 404
+    assert idle_again.json()["error"]["code"] == -32600
+    assert len(upstream.calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_session_cap_evicts_the_oldest_idle_id():
+    clock = _Clock()
+    upstream = _Upstream()
+    adapter = _session_adapter(upstream, clock, idle_timeout=1000, max_sessions=2)
+    created = []
+    for request_id in range(3):
+        clock.now = float(request_id)
+        created.append(await _open_session(adapter, request_id))
+
+    evicted = await _list_with(adapter, created[0], 10)
+    assert evicted.status_code == 404
+    assert evicted.json()["error"]["code"] == -32600
+    assert len(upstream.calls) == 3
+
+    clock.now = 10
+    kept = await _list_with(adapter, created[1], 11)
+    assert kept.status_code == 200
+
+    clock.now = 11
+    newest = await _open_session(adapter, 12)
+    oldest_idle = await _list_with(adapter, created[2], 13)
+    assert oldest_idle.status_code == 404
+    assert (await _list_with(adapter, created[1], 14)).status_code == 200
+    assert (await _list_with(adapter, newest, 15)).status_code == 200
+    assert "mcp-session-id" not in upstream.calls[-1]["headers"]
+
+
+@pytest.mark.asyncio
+async def test_delete_stays_method_not_allowed_and_keeps_the_session():
+    app = _server_app()
+    async with app.router.lifespan_context(app):
+        opened = await _post(
+            app,
+            {"jsonrpc": "2.0", "id": 1, "method": "session.initialize", "params": {}},
+            _headers(),
+        )
+        session_id = _session_id(opened)
+        assert session_id
+        transport = httpx2.ASGITransport(app=app)
+        async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            deleted = await client.delete("/mcp", headers={"host": "127.0.0.1"})
+        listed = await _post(
+            app,
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            _headers(**{"mcp-protocol-version": _HANDSHAKE, "mcp-session-id": session_id}),
+        )
+    assert deleted.status_code == 405
+    assert listed.status_code == 200
+    assert "ping" in [tool["name"] for tool in _result(listed)["tools"]]
