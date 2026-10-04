@@ -230,15 +230,8 @@ async def test_adapter_owns_the_session_and_forwards_without_one():
     assert opened.status_code == 200
     assert session_id
     assert _result(opened) is not None
-    forwarded = upstream.calls[0]
-    assert forwarded["body"]["method"] == "initialize"
-    assert forwarded["body"]["params"]["protocolVersion"] == _HANDSHAKE
-    assert forwarded["body"]["params"]["capabilities"] == {}
-    assert forwarded["body"]["params"]["clientInfo"]["name"] == "mcp"
-    assert forwarded["headers"]["mcp-protocol-version"] == _HANDSHAKE
-    assert "mcp-session-id" not in forwarded["headers"]
-    assert forwarded["headers"]["authorization"] == f"Bearer {_BEARER}"
-    assert "mcp-method" not in forwarded["headers"]
+    assert _result(opened)["serverInfo"]["name"] == "Cortex MCP Server"
+    assert upstream.calls == []
 
     listed = await _post(
         adapter,
@@ -260,7 +253,7 @@ async def test_adapter_owns_the_session_and_forwards_without_one():
     assert listed.status_code == 200
     assert _result(listed)["tools"][0]["name"] == "ping"
     assert _session_id(listed) is None
-    tool_call = upstream.calls[1]
+    tool_call = upstream.calls[0]
     assert tool_call["body"]["method"] == "tools/list"
     assert "mcp-session-id" not in tool_call["headers"]
     assert tool_call["headers"]["authorization"] == f"Bearer {_BEARER}"
@@ -284,48 +277,34 @@ async def test_adapter_owns_the_session_and_forwards_without_one():
     assert called.status_code == 200
     assert _result(called)["isError"] is False
     assert _result(called)["content"][0]["text"] == "pong"
-    assert "mcp-session-id" not in upstream.calls[2]["headers"]
+    assert "mcp-session-id" not in upstream.calls[1]["headers"]
 
 
 @pytest.mark.asyncio
-async def test_failed_initialize_does_not_store_a_session():
-    class _ErrorUpstream:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-            self.calls += 1
-            while True:
-                message = await receive()
-                if message["type"] != "http.request" and not message.get("more_body", False):
-                    break
-                if message["type"] == "http.request" and not message.get("more_body", False):
-                    break
-            encoded = json.dumps(
-                {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "Invalid request parameters"}}
-            ).encode()
-            await send(
-                {"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"application/json")]}
-            )
-            await send({"type": "http.response.body", "body": encoded, "more_body": False})
-
-    upstream = _ErrorUpstream()
-    adapter = PortkeySessionAdapter(upstream, path="/mcp")
+async def test_gateway_added_metadata_is_not_forwarded_to_a_strict_upstream():
+    upstream = _Upstream()
+    adapter = _adapter(upstream)
     opened = await _post(
         adapter,
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "session.initialize",
+            "params": {
+                "protocolVersion": _HANDSHAKE,
+                "capabilities": {},
+                "serverInfo": {"name": "gateway", "version": "1"},
+            },
+        },
         _headers(),
     )
     assert opened.status_code == 200
-    assert _session_id(opened) is None
-    assert _result(opened) is None
-    rejected = await _post(
-        adapter,
-        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
-        _headers(),
-    )
-    assert rejected.status_code == 400
-    assert upstream.calls == 1
+    assert _session_id(opened)
+    result = _result(opened)
+    assert result is not None
+    assert result["protocolVersion"] == _HANDSHAKE
+    assert result["serverInfo"]["name"] == "Cortex MCP Server"
+    assert upstream.calls == []
 
 
 @pytest.mark.asyncio
@@ -739,7 +718,7 @@ async def test_idle_session_expires_and_a_used_session_stays_valid():
     assert expired.json()["error"]["code"] == -32600
     assert "session ID" in expired.json()["error"]["message"]
     assert _session_id(expired) is None
-    assert len(upstream.calls) == 1
+    assert len(upstream.calls) == 0
 
     clock.now = 100
     active = await _open_session(adapter, 3)
@@ -757,7 +736,7 @@ async def test_idle_session_expires_and_a_used_session_stays_valid():
     idle_again = await _list_with(adapter, active, 6)
     assert idle_again.status_code == 404
     assert idle_again.json()["error"]["code"] == -32600
-    assert len(upstream.calls) == 4
+    assert len(upstream.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -773,7 +752,7 @@ async def test_session_cap_evicts_the_oldest_idle_id():
     evicted = await _list_with(adapter, created[0], 10)
     assert evicted.status_code == 404
     assert evicted.json()["error"]["code"] == -32600
-    assert len(upstream.calls) == 3
+    assert len(upstream.calls) == 0
 
     clock.now = 10
     kept = await _list_with(adapter, created[1], 11)

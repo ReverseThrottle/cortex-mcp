@@ -361,10 +361,30 @@ class PortkeySessionAdapter:
         return True
 
     async def _initialize(self, scope: Scope, body: dict[str, Any], receive: Receive, send: Send) -> None:
-        forwarded, payload = _prepare_initialize(scope, body)
-        status, headers, response = await _exchange(self.app, forwarded, _replay(payload, receive))
-        if _initialize_succeeded(status, headers, response):
-            session_id = uuid4().hex
-            self._remember(session_id)
-            headers = _with_session(headers, session_id)
-        await _send_response(send, status, headers, response)
+        """Answer the Portkey handshake without sending it to strict FastMCP.
+
+        Portkey may add server-side metadata (for example ``serverInfo``) to a
+        client ``session.initialize`` request. A stateless FastMCP endpoint
+        must not be asked to parse that gateway-shaped payload. The adapter
+        owns the session and handshake response; later tools requests still
+        pass through to the stateless application.
+        """
+        raw_params = body.get("params")
+        params = raw_params if isinstance(raw_params, dict) else {}
+        requested_version = params.get("protocolVersion")
+        protocol = requested_version if requested_version in HANDSHAKE_PROTOCOL_VERSIONS else LATEST_HANDSHAKE_VERSION
+        session_id = uuid4().hex
+        self._remember(session_id)
+        response = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": body.get("id"),
+                "result": {
+                    "protocolVersion": protocol,
+                    "serverInfo": {"name": "Cortex MCP Server", "version": "2.0.0"},
+                    "capabilities": {"tools": {}},
+                },
+            }
+        ).encode()
+        headers = _with_session([(b"content-type", b"application/json")], session_id)
+        await _send_response(send, 200, headers, response)
