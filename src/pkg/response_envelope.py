@@ -75,7 +75,9 @@ def apply_response_envelope(value: Any) -> Any:
     fields are the envelope, including ``reply``, ``success``, timestamps, and
     a formatting hint the tool already set. Other JSON values stay as they are.
     ``total`` and ``pagination`` are not added to objects, because Cortex
-    endpoints do not share one pagination shape.
+    endpoints do not share one pagination shape. A plain string, including an
+    empty download body, cannot satisfy an object output schema, so it is
+    returned as ``{"content": "<text>"}``.
     """
     if isinstance(value, dict):
         wrapped = _fastmcp_wrapped_array(value)
@@ -87,6 +89,8 @@ def apply_response_envelope(value: Any) -> Any:
         return ensure_formatting_metadata(dict(value))
     if isinstance(value, list):
         return ensure_formatting_metadata({"data": value, "total": len(value)})
+    if isinstance(value, str):
+        return ensure_formatting_metadata({"content": value})
     return value
 
 
@@ -98,7 +102,7 @@ def _envelope_text(text: str) -> tuple[str, dict | None]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        return text, None
+        parsed = text
     enveloped = apply_response_envelope(parsed)
     if not isinstance(enveloped, dict):
         return text, None
