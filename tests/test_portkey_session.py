@@ -12,6 +12,7 @@ from starlette.middleware import Middleware
 from starlette.types import Message, Receive, Scope, Send
 
 from config.config import DEFAULT_MCP_ALLOWED_HOSTS
+from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
 from main import async_main, streamable_http_middleware
 from pkg.portkey_session import PortkeySessionAdapter
 from pkg.protocol_header import ModernProtocolHeaderMiddleware
@@ -460,6 +461,38 @@ async def test_standard_initialize_mints_a_session_including_empty_params():
     assert _session_id(empty) != _session_id(full)
     assert _result(empty)["protocolVersion"] == _HANDSHAKE
     assert "error" not in _messages(empty)[-1]
+
+
+@pytest.mark.asyncio
+async def test_http_initialize_includes_formatting_instructions():
+    app = _server_app()
+    async with app.router.lifespan_context(app):
+        session_init = await _post(
+            app,
+            {"jsonrpc": "2.0", "id": 1, "method": "session.initialize", "params": {}},
+            _headers(),
+        )
+        standard = await _post(
+            app,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": _HANDSHAKE,
+                    "capabilities": {},
+                    "clientInfo": {"name": "conformance", "version": "0"},
+                },
+            },
+            _headers(**{"mcp-protocol-version": _HANDSHAKE}),
+        )
+
+    for response in (session_init, standard):
+        assert response.status_code == 200
+        result = _result(response)
+        assert result is not None
+        assert result["instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+        assert "NEVER fabricate" in result["instructions"]
 
 
 @pytest.mark.asyncio
