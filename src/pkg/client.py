@@ -1,8 +1,11 @@
 import asyncio
+import contextvars
+import gzip
 import io
 import json
 import logging
 import random
+import zlib
 from json import JSONDecodeError
 from typing import Literal, assert_never
 
@@ -86,6 +89,96 @@ def _status_exception(url: str, status_code: int, body: str) -> PAPIClientError:
         message = f"Unexpected response code for request to {url}: {body} {detail}"
         error = PAPIResponseError(message, status_code=status_code, cortex_error_code=code)
     return error
+
+
+# Set while request(..., raw=True) is in flight. Catalog tools call send()
+# directly and leave this false, so a zip body can be turned into a clean error
+# instead of a UTF-8 traceback. Raw callers still receive the original bytes.
+_preserve_binary_body: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "papi_preserve_binary_body",
+    default=False,
+)
+_GZIP_MAGIC = b"\x1f\x8b"
+
+
+class ResponseBytes(bytes):
+    """Raw response body tagged with the media type and content encoding.
+
+    ``request(..., raw=True)`` returns this. It compares equal to the payload
+    bytes, and callers can read ``content_type`` and ``content_encoding``.
+    """
+
+    content_type: str
+    content_encoding: str
+
+    def __new__(
+        cls,
+        data: bytes,
+        *,
+        content_type: str,
+        content_encoding: str,
+    ) -> "ResponseBytes":
+        body = bytes.__new__(cls, data)
+        body.content_type = content_type
+        body.content_encoding = content_encoding
+        return body
+
+
+def response_media_type(content_type: str) -> str:
+    """Return the media type without parameters, or ``application/octet-stream``."""
+    media = content_type.split(";", 1)[0].strip().lower()
+    return media or "application/octet-stream"
+
+
+def binary_response_error(mime: str, size: int) -> str:
+    """Error text for a body that is not UTF-8 and is not handled as an export."""
+    return f"binary response ({mime}, {size} bytes) not supported by this tool"
+
+
+def _response_text(response: httpx.Response) -> str:
+    try:
+        return response.text
+    except UnicodeError:
+        mime = response_media_type(response.headers.get("content-type", ""))
+        return binary_response_error(mime, len(response.content))
+
+
+def _response_with_body(response: httpx.Response, body: bytes) -> httpx.Response:
+    headers = httpx.Headers(response.headers)
+    for name in ("content-encoding", "content-length", "transfer-encoding"):
+        if name in headers:
+            del headers[name]
+    return httpx.Response(
+        status_code=response.status_code,
+        headers=headers,
+        content=body,
+        request=getattr(response, "_request", None),
+    )
+
+
+def _coerce_textual_response(response: httpx.Response) -> httpx.Response:
+    """Gunzip a raw gzip body, and refuse bytes that are not UTF-8.
+
+    httpx leaves the gzip magic in place when ``Content-Encoding`` is missing.
+    FastMCP then calls ``response.json()`` / ``response.text`` and a zip or
+    other binary payload becomes ``'utf-8' codec``. A decoded gzip body is
+    returned in its place. Callers that asked for the original bytes skip this.
+    """
+    content = response.content
+    if content[:2] == _GZIP_MAGIC:
+        try:
+            decoded = gzip.decompress(content)
+        except (OSError, EOFError, zlib.error):
+            pass
+        else:
+            content = decoded
+            response = _response_with_body(response, content)
+    try:
+        content.decode("utf-8")
+    except UnicodeDecodeError:
+        mime = response_media_type(response.headers.get("content-type", ""))
+        raise PAPIResponseError(binary_response_error(mime, len(content))) from None
+    return response
 
 
 class PAPIClient(httpx.AsyncClient):
@@ -191,7 +284,9 @@ class PAPIClient(httpx.AsyncClient):
                 await self._pause_before_retry(attempt)
                 attempt += 1
                 continue
-            return response
+            if kwargs.get("stream") or _preserve_binary_body.get():
+                return response
+            return _coerce_textual_response(response)
 
     def _get_default_headers(self) -> httpx.Headers:
         """Get default headers with authentication."""
@@ -300,51 +395,63 @@ class PAPIClient(httpx.AsyncClient):
         full_url = f"{self.base_url}{url}"
         logger.info(f"Sending async request to {full_url}")
 
+        # raw=True must observe the original body. send() otherwise gunzips a
+        # gzip payload and refuses non-UTF-8 bytes before this method sees them.
+        token = _preserve_binary_body.set(raw)
         try:
-            response = await super().request(
-                method=method,
-                url=url,
-                data=data,
-                params=params,
-                headers=headers,
-                cookies=cookies,
-                timeout=timeout if timeout else self.timeout,
-                json=None if files is not None else json,
-                files=files,
-                content=content,
-            )
-        except ConnectError as e:
-            logger.exception(f"Connection failed for request to {url}: {e}")
-            raise PAPIConnectionError(f"Failed to connect to PAPI server at {url}: {e}") from e
-        except TimeoutException as e:
-            logger.exception(f"Request timeout for request to {url}: {e}")
-            raise PAPIConnectionError(f"Request timeout for {url}: {e}") from e
-        except RequestError as e:
-            logger.exception(f"Request failed for request to {url}: {e}")
-            raise PAPIConnectionError(f"Request failed for {url}: {e}") from e
-        except Exception as e:
-            logger.exception(f"Unexpected error sending request to {url}: {e}")
-            raise PAPIClientError(f"Unexpected error for request to {url}: {e}") from e
+            try:
+                response = await super().request(
+                    method=method,
+                    url=url,
+                    data=data,
+                    params=params,
+                    headers=headers,
+                    cookies=cookies,
+                    timeout=timeout if timeout else self.timeout,
+                    json=None if files is not None else json,
+                    files=files,
+                    content=content,
+                )
+            except ConnectError as e:
+                logger.exception(f"Connection failed for request to {url}: {e}")
+                raise PAPIConnectionError(f"Failed to connect to PAPI server at {url}: {e}") from e
+            except TimeoutException as e:
+                logger.exception(f"Request timeout for request to {url}: {e}")
+                raise PAPIConnectionError(f"Request timeout for {url}: {e}") from e
+            except RequestError as e:
+                logger.exception(f"Request failed for request to {url}: {e}")
+                raise PAPIConnectionError(f"Request failed for {url}: {e}") from e
+            except PAPIClientError:
+                raise
+            except Exception as e:
+                logger.exception(f"Unexpected error sending request to {url}: {e}")
+                raise PAPIClientError(f"Unexpected error for request to {url}: {e}") from e
 
-        if response is None:
-            err_msg = f"Received None response from server for request to {url}"
-            logger.error(err_msg)
-            raise PAPIResponseError(err_msg)
+            if response is None:
+                err_msg = f"Received None response from server for request to {url}"
+                logger.error(err_msg)
+                raise PAPIResponseError(err_msg)
 
-        if response.status_code < 200 or response.status_code >= 300:
-            err = _status_exception(url, response.status_code, response.text)
-            logger.error(str(err))
-            raise err
+            if response.status_code < 200 or response.status_code >= 300:
+                err = _status_exception(url, response.status_code, _response_text(response))
+                logger.error(str(err))
+                raise err
 
-        if raw:
-            return response.content
+            if raw:
+                return ResponseBytes(
+                    response.content,
+                    content_type=response.headers.get("content-type", ""),
+                    content_encoding=response.headers.get("content-encoding", ""),
+                )
 
-        try:
-            return response.json()
-        except JSONDecodeError as e:
-            err_msg = f"Invalid JSON response from server for request to {url}: {e}"
-            logger.error(err_msg)
-            raise PAPIResponseError(err_msg) from e
+            try:
+                return response.json()
+            except JSONDecodeError as e:
+                err_msg = f"Invalid JSON response from server for request to {url}: {e}"
+                logger.error(err_msg)
+                raise PAPIResponseError(err_msg) from e
+        finally:
+            _preserve_binary_body.reset(token)
 
     async def stream(  # type: ignore[override]
         self,

@@ -27343,7 +27343,7 @@
           }
         },
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -27354,10 +27354,17 @@
                 "properties": {
                   "request_data": {
                     "type": "object",
+                    "required": [
+                      "filter"
+                    ],
                     "properties": {
                       "filter": {
                         "type": "object",
                         "description": "Filter fields.",
+                        "required": [
+                          "field",
+                          "value"
+                        ],
                         "properties": {
                           "field": {
                             "enum": [
@@ -29368,7 +29375,7 @@
           }
         },
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -29379,10 +29386,17 @@
                 "properties": {
                   "request_data": {
                     "type": "object",
+                    "required": [
+                      "filter"
+                    ],
                     "properties": {
                       "filter": {
                         "type": "object",
                         "description": "Filter fields.",
+                        "required": [
+                          "field",
+                          "value"
+                        ],
                         "properties": {
                           "field": {
                             "enum": [
