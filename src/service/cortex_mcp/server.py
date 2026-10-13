@@ -8,6 +8,7 @@ from fastmcp.server.auth import StaticTokenVerifier
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
 from entities.MCPContext import MCPContext
 from version import __version__
 
@@ -83,6 +84,7 @@ def create_mcp_server(
 
     mcp = FastMCP(
         name="Cortex MCP Server",
+        instructions=LLM_FORMATTING_BASE_INSTRUCTIONS,
         version=__version__,
         lifespan=lifespan,
         auth=auth,

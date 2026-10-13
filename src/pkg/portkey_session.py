@@ -24,6 +24,8 @@ from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERS
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
+
 _SESSION_HEADER = "mcp-session-id"
 _PROTOCOL_HEADER = "mcp-protocol-version"
 _INIT_METHODS = frozenset({"initialize", "session.initialize"})
@@ -366,7 +368,8 @@ class PortkeySessionAdapter:
         Portkey may add server-side metadata (for example ``serverInfo``) to a
         client ``session.initialize`` request. A stateless FastMCP endpoint
         must not be asked to parse that gateway-shaped payload. The adapter
-        owns the session and handshake response; later tools requests still
+        owns the session and handshake response, including the same formatting
+        instructions FastMCP sends on initialize. Later tools requests still
         pass through to the stateless application.
         """
         raw_params = body.get("params")
@@ -383,6 +386,7 @@ class PortkeySessionAdapter:
                     "protocolVersion": protocol,
                     "serverInfo": {"name": "Cortex MCP Server", "version": "2.0.0"},
                     "capabilities": {"tools": {}},
+                    "instructions": LLM_FORMATTING_BASE_INSTRUCTIONS,
                 },
             }
         ).encode()

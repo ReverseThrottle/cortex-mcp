@@ -8,13 +8,28 @@ from mcp.types import TextContent
 from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
 
 
-def ensure_formatting_metadata(payload: dict) -> dict:
-    """Add shared formatting instructions without replacing metadata a tool already set.
+def inline_formatting_instructions_enabled() -> bool:
+    """True when a client asked to keep formatting text inside each tool result.
 
-    Dict ``_metadata`` is copied and gains ``formatting_instructions`` only when
-    that key is absent. Any other existing ``_metadata`` value stays as the tool
-    set it.
+    Imported lazily: ``config`` imports ``pkg.util``, which imports this module.
     """
+    from config.config import get_config
+
+    return get_config().inline_formatting_instructions
+
+
+def ensure_formatting_metadata(payload: dict) -> dict:
+    """Add shared formatting instructions only when that opt-in is enabled.
+
+    The default is a no-op. Clients receive ``LLM_FORMATTING_BASE_INSTRUCTIONS``
+    once, as the server ``instructions`` sent at initialize. Set
+    ``MCP_INLINE_FORMATTING_INSTRUCTIONS=true`` to restore
+    ``_metadata.formatting_instructions`` on each result. Dict ``_metadata`` is
+    copied and gains ``formatting_instructions`` only when that key is absent.
+    Any other existing ``_metadata`` value stays as the tool set it.
+    """
+    if not inline_formatting_instructions_enabled():
+        return payload
     if "_metadata" not in payload:
         payload["_metadata"] = {"formatting_instructions": LLM_FORMATTING_BASE_INSTRUCTIONS}
         return payload
@@ -72,8 +87,10 @@ def apply_response_envelope(value: Any) -> Any:
     ``{"result": [...]}``; that object uses the same ``data`` / ``total``
     envelope. A handwritten ``-> str`` tool is stored as
     ``{"result": "<json string>"}``. When that string is a JSON object, its
-    fields are the envelope, including ``reply``, ``success``, timestamps, and
-    a formatting hint the tool already set. Other JSON values stay as they are.
+    fields are the envelope, including ``reply``, ``success``, and timestamps.
+    ``_metadata.formatting_instructions`` is added only when
+    ``MCP_INLINE_FORMATTING_INSTRUCTIONS`` is set. Other JSON values stay as
+    they are.
     ``total`` and ``pagination`` are not added to objects, because Cortex
     endpoints do not share one pagination shape.
     """
@@ -152,10 +169,11 @@ def envelope_tool_result(result: ToolResult) -> ToolResult:
 
 
 class ResponseEnvelopeMiddleware(Middleware):
-    """Add ``_metadata.formatting_instructions`` to JSON tool results.
+    """Shape JSON tool results without embedding model instructions.
 
     Registered before write confirmation. FastMCP runs that first middleware
-    first, so this one sees the final result, including a refusal.
+    first, so this one sees the final result, including a refusal. Formatting
+    text is omitted unless ``MCP_INLINE_FORMATTING_INSTRUCTIONS`` is set.
     """
 
     async def on_call_tool(

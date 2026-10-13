@@ -6,7 +6,6 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools import InputRequiredToolResult, ToolResult
 from mcp.types import CallToolRequestParams, InputRequiredResult
 
-from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
 from pkg.response_envelope import (
     ResponseEnvelopeMiddleware,
     apply_response_envelope,
@@ -24,7 +23,8 @@ def test_create_response_keeps_cortex_fields_and_adds_formatting_metadata():
     assert parsed["reply"]["observation_time"] == 1762774211000
     assert parsed["reply"]["severity"] == "high"
     assert parsed["success"] == "true"
-    assert parsed["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert "_metadata" not in parsed
+    assert "formatting_instructions" not in parsed
     assert "data" not in parsed
     assert "total" not in parsed
     assert "pagination" not in parsed
@@ -51,7 +51,7 @@ def test_array_results_use_data_and_total():
 
     assert enveloped["data"] == [{"id": 7, "observation_time": 10}]
     assert enveloped["total"] == 1
-    assert enveloped["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert "_metadata" not in enveloped
     assert "pagination" not in enveloped
 
 
@@ -60,11 +60,11 @@ def test_fastmcp_wrapped_array_uses_data_and_total():
 
     enveloped = apply_response_envelope({"result": body})
 
-    assert set(enveloped) == {"data", "total", "_metadata"}
+    assert set(enveloped) == {"data", "total"}
     assert enveloped["data"] == body
     assert enveloped["data"][0]["observation_time"] == 10
     assert enveloped["total"] == 1
-    assert enveloped["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert "_metadata" not in enveloped
     assert "pagination" not in enveloped
 
     empty = apply_response_envelope({"result": []})
@@ -93,7 +93,7 @@ def test_fastmcp_wrapped_json_string_mixes_object_fields():
 
     plain = apply_response_envelope({"result": "not json"})
     assert plain["result"] == "not json"
-    assert plain["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert "_metadata" not in plain
 
 
 def test_objects_that_merely_contain_result_keep_their_fields():
@@ -102,7 +102,7 @@ def test_objects_that_merely_contain_result_keep_their_fields():
     assert listed["success"] == "true"
     assert "data" not in listed
     assert "total" not in listed
-    assert listed["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert "_metadata" not in listed
 
     nested = apply_response_envelope({"result": {"observation_time": 1762774211000}})
     assert nested["result"]["observation_time"] == 1762774211000
@@ -155,7 +155,7 @@ async def test_middleware_envelopes_object_results_without_rewriting_values():
     parsed = json.loads(result.content[0].text)
 
     assert parsed["reply"]["observation_time"] == 1762774211000
-    assert parsed["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert "_metadata" not in parsed
     assert result.structured_content["reply"]["observation_time"] == 1762774211000
     assert "pagination" not in parsed
 
@@ -190,11 +190,11 @@ async def test_middleware_envelopes_fastmcp_wrapped_openapi_arrays():
     result = await ResponseEnvelopeMiddleware().on_call_tool(_context(), call_next)
     parsed = json.loads(result.content[0].text)
 
-    assert set(parsed) == {"data", "total", "_metadata"}
+    assert set(parsed) == {"data", "total"}
     assert parsed["data"] == body
     assert parsed["data"][0]["observation_time"] == 10
     assert parsed["total"] == 1
-    assert parsed["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert "_metadata" not in parsed
     assert result.structured_content == parsed
     assert "pagination" not in parsed
     assert "result" not in parsed
@@ -288,6 +288,7 @@ async def test_handwritten_tool_call_returns_the_mixed_object():
     refusal = json.loads(refused.content[0].text)
     assert refusal["error"] == "not confirmed"
     assert refusal["success"] == "false"
-    assert refusal["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert "_metadata" not in refusal
+    assert "formatting_instructions" not in refusal
     assert refused.structured_content == refusal
     assert "result" not in refusal
