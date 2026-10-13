@@ -20,13 +20,11 @@ from mcp.types import (
 from pydantic import BaseModel, Field
 
 from config.config import get_config
+from pkg.tool_classification import requires_confirmation, side_effect_from_tool
 from pkg.util import create_response
 
 logger = logging.getLogger(__name__)
 
-_CHANGES_STATE = "Side effects: this operation changes"
-_CREATES_STATE = "Side effects: this operation creates"
-_READ_ONLY = "Side effects: none"
 _CONFIRM_ID = "confirm_write"
 
 
@@ -38,12 +36,14 @@ class WriteConfirmation(BaseModel):
     )
 
 
-def changes_tenant_state(description: str | None) -> bool:
-    """True when the tool description says the call writes, creates, or replaces tenant data."""
-    text = description or ""
-    if _READ_ONLY in text:
-        return False
-    return _CHANGES_STATE in text or _CREATES_STATE in text
+def changes_tenant_state(tool: Any) -> bool:
+    """True when the tool is not an explicit read.
+
+    The class is the one stored on the tool. Description text is not consulted,
+    so a ``Side effects: none`` sentence cannot skip confirmation. A missing
+    class fails closed and asks for confirmation.
+    """
+    return requires_confirmation(side_effect_from_tool(tool))
 
 
 def _refused(reason: str) -> ToolResult:
@@ -149,7 +149,7 @@ class WriteConfirmationMiddleware(Middleware):
         except NotFoundError:
             return await call_next(context)
 
-        if tool is None or not changes_tenant_state(tool.description):
+        if tool is None or not changes_tenant_state(tool):
             return await call_next(context)
 
         unsupported = (

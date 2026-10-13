@@ -8,6 +8,7 @@ from fastmcp import FastMCP
 
 from config.config import reload_config
 from pkg.broker_client import BrokerClient, broker_base_url, reset_broker_client
+from pkg.tool_classification import handwritten_side_effect
 from pkg.write_confirmation import changes_tenant_state
 from usecase.builtin_components import broker_vm
 from usecase.builtin_components.broker_vm import (
@@ -77,7 +78,7 @@ def test_broker_url_requires_https():
 @pytest.mark.asyncio
 async def test_broker_tools_change_state_and_register_only_with_writes(server_settings):
     for tool in _BROKER_TOOLS:
-        assert changes_tenant_state(tool.__doc__)
+        assert handwritten_side_effect(tool.__name__) == "write"
         assert "Side effects: none" not in (tool.__doc__ or "")
 
     server_settings(MCP_WRITE_TOOLS_ENABLED="false")
@@ -89,8 +90,13 @@ async def test_broker_tools_change_state_and_register_only_with_writes(server_se
     server_settings(MCP_WRITE_TOOLS_ENABLED="true")
     shown = FastMCP("shown")
     discover_and_register_modules(shown)
-    shown_names = {tool.name for tool in await shown.list_tools()}
-    assert {tool.__name__ for tool in _BROKER_TOOLS} <= shown_names
+    shown_tools = {tool.name: tool for tool in await shown.list_tools()}
+    assert {tool.__name__ for tool in _BROKER_TOOLS} <= set(shown_tools)
+    for tool in _BROKER_TOOLS:
+        published = shown_tools[tool.__name__]
+        assert published.annotations is not None
+        assert published.annotations.read_only_hint is False
+        assert changes_tenant_state(published)
 
 
 @pytest.mark.asyncio

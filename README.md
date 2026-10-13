@@ -160,9 +160,10 @@ All configuration is via environment variables (or a `.env` file in the project 
 
 | Variable | Default | Description |
 |---|---|---|
-| `MCP_WRITE_TOOLS_ENABLED` | `false` | When `true`, register tools that change tenant or Broker VM appliance state. Read-only tools are always registered. Each mutating tool description states the side effect. |
+| `MCP_WRITE_TOOLS_ENABLED` | `false` | When `true`, register `action` and `write` tools, and allow `secret` tools. Read-only tools are always registered. |
+| `MCP_SECRET_TOOLS_ENABLED` | `false` | When `true` together with `MCP_WRITE_TOOLS_ENABLED`, register tools that return secrets or credential-like artifacts. They stay out of `tools/list` otherwise. |
 | `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED` | `false` | When `true`, register `isolate_endpoint` and `unisolate_endpoint`. |
-| `MCP_ELICITATION_ENABLED` | `false` | When `true`, a mutating tool asks for confirmation through MCP elicitation before it runs. When `false`, registered tools run without that prompt. Write and isolate flags still control registration. |
+| `MCP_ELICITATION_ENABLED` | `false` | When `true`, an action, write, or secret tool asks for confirmation through MCP elicitation before it runs. When `false`, registered tools run without that prompt. Write, secret, and isolate flags still control registration. |
 | `MCP_INLINE_FORMATTING_INSTRUCTIONS` | `false` | When `true`, each tool result includes `_metadata.formatting_instructions`. When `false`, that guidance is sent once in the MCP `initialize` instructions and is omitted from tool results. |
 
 ### Optional — limits & logging
@@ -263,7 +264,9 @@ A health-check endpoint is also available at `GET /ping/` (unauthenticated).
 
 ## Available tools
 
-The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpanse, AgentiX, and XSOAR 8), the on-appliance Broker VM API, and the helpers below. Read-only tools are always registered. Mutating tools, including the 10 Broker VM appliance tools, are registered only when `MCP_WRITE_TOOLS_ENABLED=true`. `isolate_endpoint` and `unisolate_endpoint` are registered only when `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED=true`. Every tool description states whether the call changes state, including when writes are enabled. When `MCP_ELICITATION_ENABLED=true`, those mutating tools ask for confirmation before they run.
+The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpanse, AgentiX, and XSOAR 8), the on-appliance Broker VM API, and the helpers below. Every catalog operation has an `x-cortex-mcp-side-effect` class: `read`, `action`, `write`, or `secret`. Handwritten tools use the same classes. Annotations, `tools/list`, and write confirmation all use that class. A missing class is not read-only.
+
+`read` tools are always registered. `action` and `write` tools, including the 10 Broker VM appliance tools, are registered only when `MCP_WRITE_TOOLS_ENABLED=true`. `secret` tools (private-key export, the XSOAR credential vault, engine configuration downloads, and signed installer URLs) are registered only when that flag and `MCP_SECRET_TOOLS_ENABLED` are both true. `isolate_endpoint` and `unisolate_endpoint` also require `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED=true`. Each description states the same side effect as its annotation. When `MCP_ELICITATION_ENABLED=true`, action, write, and secret tools ask for confirmation before they run.
 
 ### Helpers
 
@@ -303,7 +306,7 @@ These 10 tools call the broker appliance, not `/public_api/v1/brokers/` on the t
 
 ### Public API catalog (506 additional tools)
 
-506 tools come from the public API reference, in addition to the helpers and Broker VM tools above. The list names every tool (530) registered when write and isolate tools are enabled. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. The documented per-case update is separate from `update_case`.
+506 tools come from the public API reference, in addition to the helpers and Broker VM tools above. With write, secret, and isolate flags off, the server registers 255 tools. With only write tools enabled, it registers 523. With only the write and isolate flags enabled, it registers 525. The list below names every tool (530) registered when write, secret, and isolate tools are all enabled. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. The documented per-case update is separate from `update_case`.
 
 <details>
 <summary>All tool names</summary>

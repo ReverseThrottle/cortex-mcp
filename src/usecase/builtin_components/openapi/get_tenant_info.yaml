@@ -9,6 +9,7 @@ paths:
         including details about your Cortex environment and license type. 
         This tool helps verify license status and entitlements for operational visibility and compliance.
       operationId: get_tenant_info
+      x-cortex-mcp-side-effect: read
       responses:
         '200':
           description: Successful response containing the tenant information.

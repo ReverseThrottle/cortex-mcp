@@ -25,6 +25,7 @@ from pkg.portkey_session import PortkeySessionAdapter
 from pkg.protocol_header import ModernProtocolHeaderMiddleware
 from pkg.response_envelope import ResponseEnvelopeMiddleware
 from pkg.setup_logging import setup_logging
+from pkg.tool_classification import catalog_tool_enabled, side_effect_from_route
 from pkg.tool_presentation import annotate_openapi_component
 from pkg.tool_rate_limit import ToolCallRateLimitMiddleware
 from pkg.util import bundle_openapi_from_folders, get_papi_url
@@ -168,19 +169,22 @@ async def async_main(transport: str):
 
 
 def openapi_route_map(route, mcp_type):
-    """Hide binary exports, and hide mutating catalog tools unless writes are enabled.
+    """Hide binary exports, then hide non-read catalog tools unless their flags are set.
 
     Playbook, script, and incident-performance exports return zip or gzip.
-    Handwritten tools own those operation ids, so the catalog copies are excluded.
+    Handwritten tools own those operation ids, so the catalog copies are excluded
+    before the side-effect class is considered. Read tools stay registered. A
+    route with no ``x-cortex-mcp-side-effect`` class is not treated as read-only.
+    Secret tools also require ``MCP_SECRET_TOOLS_ENABLED``. ``mcp_type`` is the
+    FastMCP assignment; this function excludes the route or leaves that
+    assignment unchanged.
     """
+    del mcp_type
     if getattr(route, "operation_id", None) in BINARY_EXPORT_OPERATION_IDS:
         return MCPType.EXCLUDE
-    if get_config().write_tools_enabled:
+    if catalog_tool_enabled(side_effect_from_route(route)):
         return None
-    description = getattr(route, "description", "") or ""
-    if "Side effects: this operation changes" in description:
-        return MCPType.EXCLUDE
-    return None
+    return MCPType.EXCLUDE
 
 
 async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, auth_token: str = "") -> FastMCP:

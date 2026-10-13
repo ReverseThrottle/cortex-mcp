@@ -49,9 +49,9 @@ def _assert_no_formatting_instructions(text: str) -> dict:
 
 class _Tools(BaseModule):
     def register_tools(self):
-        self._add_tool(self.echo)
-        self._add_tool(self.needs_int)
-        self._add_tool(self.change_state)
+        self._add_tool(self.echo, side_effect="read")
+        self._add_tool(self.needs_int, side_effect="read")
+        self._add_tool(self.change_state, side_effect="write")
 
     def register_resources(self):
         return None
