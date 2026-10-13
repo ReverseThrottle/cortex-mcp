@@ -9,14 +9,27 @@ from pathlib import Path
 import httpx2 as httpx
 import pytest
 from fastmcp import FastMCP
+from fastmcp.server.elicitation import AcceptedElicitation
+from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.server.providers.openapi.routing import MCPType
+from mcp.types import CallToolRequestParams
 
 from config.config import reload_config
 from entities.exceptions import PAPIResponseError
 from main import initialize_mcp_server, openapi_route_map
 from pkg.client import PAPIClient
 from pkg.setup_logging import configure_library_logging
+from pkg.tool_classification import SIDE_EFFECT_EXTENSION
+from pkg.tool_presentation import (
+    annotate_openapi_component,
+    annotations_for_side_effect,
+)
 from pkg.util import bundle_openapi_from_folders
+from pkg.write_confirmation import (
+    WriteConfirmation,
+    WriteConfirmationMiddleware,
+    changes_tenant_state,
+)
 from usecase.builtin_components.content_exports import BINARY_EXPORT_OPERATION_IDS
 from usecase.custom_components import xql_query as xql_query_module
 from usecase.custom_components.xql_query import decode_xql_stream, run_xql_query
@@ -71,6 +84,18 @@ ISOLATE_PYTHON_TOOLS = {
     "unisolate_endpoint",
 }
 
+ISSUE_26_TOOLS = (
+    "post_endpoints_file_retrieval",
+    "post_brokers_by_device_id_applets_wec_wef_cert",
+    "post_settings_credentials",
+    "get_engines_download_by_id",
+    "post_distributions_get_dist_url",
+)
+
+SECRET_CATALOG_TOOLS = ISSUE_26_TOOLS[1:] + ("get_brokers_images",)
+
+SIDE_EFFECT_CLASSES = {"read", "action", "write", "secret"}
+
 PYTHON_ONLY_PATHS = (
     "/xsoar/public/v1/playbook/save/yaml",
     "/xsoar/public/v1/entry/upload/{incident_id}",
@@ -119,11 +144,13 @@ def openapi_server(bundled_spec):
 def feature_flags(monkeypatch):
     previous = {
         "MCP_WRITE_TOOLS_ENABLED": os.environ.get("MCP_WRITE_TOOLS_ENABLED"),
+        "MCP_SECRET_TOOLS_ENABLED": os.environ.get("MCP_SECRET_TOOLS_ENABLED"),
         "MCP_ISOLATE_ENDPOINT_TOOL_ENABLED": os.environ.get("MCP_ISOLATE_ENDPOINT_TOOL_ENABLED"),
     }
 
-    def apply(*, write: bool, isolate: bool):
+    def apply(*, write: bool, isolate: bool, secret: bool = False):
         monkeypatch.setenv("MCP_WRITE_TOOLS_ENABLED", "true" if write else "false")
+        monkeypatch.setenv("MCP_SECRET_TOOLS_ENABLED", "true" if secret else "false")
         monkeypatch.setenv("MCP_ISOLATE_ENDPOINT_TOOL_ENABLED", "true" if isolate else "false")
         return reload_config()
 
@@ -451,15 +478,65 @@ async def test_python_tools_follow_the_write_and_isolate_flags(openapi_server, f
     assert "Side effects:" in (isolate.description or "")
 
 
-def test_openapi_route_map_hides_mutating_catalog_tools(feature_flags):
-    feature_flags(write=False, isolate=False)
-    mutating = type("Route", (), {"description": "Side effects: this operation changes tenant state"})()
-    lookup = type("Route", (), {"description": "Side effects: none. This is a read-only Cortex API call"})()
-    assert openapi_route_map(mutating, MCPType.TOOL) is MCPType.EXCLUDE
-    assert openapi_route_map(lookup, MCPType.TOOL) is None
+def _route(kind: str | None):
+    extensions = {} if kind is None else {SIDE_EFFECT_EXTENSION: kind}
+    return type(
+        "Route",
+        (),
+        {
+            "extensions": extensions,
+            "operation_id": None,
+            "description": "Side effects: none. This is a read-only Cortex API call",
+        },
+    )()
 
-    feature_flags(write=True, isolate=False)
-    assert openapi_route_map(mutating, MCPType.TOOL) is None
+
+def _annotated_catalog(spec: dict):
+    return FastMCP.from_openapi(
+        spec,
+        httpx.AsyncClient(base_url="https://api.example.invalid"),
+        route_map_fn=openapi_route_map,
+        mcp_component_fn=annotate_openapi_component,
+    )
+
+
+def test_every_catalog_operation_declares_a_side_effect(bundled_spec):
+    missing = []
+    for path, methods in bundled_spec["paths"].items():
+        for method, operation in methods.items():
+            if method.lower() not in {"get", "post", "put", "patch", "delete"} or not isinstance(operation, dict):
+                continue
+            if operation.get(SIDE_EFFECT_EXTENSION) not in SIDE_EFFECT_CLASSES:
+                missing.append(f"{method.upper()} {path}")
+    assert missing == []
+
+
+def test_unclassified_tools_fail_closed():
+    annotations = annotations_for_side_effect(None)
+    assert annotations.read_only_hint is False
+    assert annotations.destructive_hint is True
+    assert annotations.idempotent_hint is False
+
+
+def test_openapi_route_map_hides_non_read_catalog_tools(feature_flags):
+    feature_flags(write=False, isolate=False, secret=False)
+    assert openapi_route_map(_route("read"), MCPType.TOOL) is None
+    assert openapi_route_map(_route("action"), MCPType.TOOL) is MCPType.EXCLUDE
+    assert openapi_route_map(_route("write"), MCPType.TOOL) is MCPType.EXCLUDE
+    assert openapi_route_map(_route("secret"), MCPType.TOOL) is MCPType.EXCLUDE
+    assert openapi_route_map(_route(None), MCPType.TOOL) is MCPType.EXCLUDE
+
+    feature_flags(write=True, isolate=False, secret=False)
+    assert openapi_route_map(_route("action"), MCPType.TOOL) is None
+    assert openapi_route_map(_route("write"), MCPType.TOOL) is None
+    assert openapi_route_map(_route("secret"), MCPType.TOOL) is MCPType.EXCLUDE
+    assert openapi_route_map(_route(None), MCPType.TOOL) is None
+
+    feature_flags(write=False, isolate=False, secret=True)
+    assert openapi_route_map(_route("secret"), MCPType.TOOL) is MCPType.EXCLUDE
+
+    feature_flags(write=True, isolate=False, secret=True)
+    assert openapi_route_map(_route("secret"), MCPType.TOOL) is None
     text = Path(inspect.getsourcefile(initialize_mcp_server)).read_text()
     assert "route_map_fn=openapi_route_map" in text
     assert "timeout=300" in text
@@ -467,6 +544,93 @@ def test_openapi_route_map_hides_mutating_catalog_tools(feature_flags):
     assert "stateless_http=True" in text
     assert "host_origin_protection=True" in text
     assert "FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER" not in text
+
+
+def _assert_not_read_only(tool) -> None:
+    assert tool.annotations is not None
+    assert tool.annotations.read_only_hint is False
+    assert tool.annotations.destructive_hint is True
+    assert tool.annotations.idempotent_hint is False
+    assert "Side effects: none" not in (tool.description or "")
+    assert changes_tenant_state(tool)
+
+
+@pytest.mark.asyncio
+async def test_issue_26_tools_are_hidden_until_their_flags_are_set(feature_flags, bundled_spec):
+    feature_flags(write=False, isolate=False, secret=False)
+    hidden = await _tool_map(_annotated_catalog(bundled_spec))
+    assert "post_endpoints_file_retrieval" not in hidden
+    for name in SECRET_CATALOG_TOOLS:
+        assert name not in hidden
+    assert "get_assets" in hidden
+    assets = hidden["get_assets"]
+    assert assets.annotations is not None
+    assert assets.annotations.read_only_hint is True
+    assert "Side effects: none" in (assets.description or "")
+
+    feature_flags(write=True, isolate=False, secret=False)
+    writes = await _tool_map(_annotated_catalog(bundled_spec))
+    _assert_not_read_only(writes["post_endpoints_file_retrieval"])
+    for name in SECRET_CATALOG_TOOLS:
+        assert name not in writes
+
+    feature_flags(write=True, isolate=False, secret=True)
+    exposed = await _tool_map(_annotated_catalog(bundled_spec))
+    for name in ISSUE_26_TOOLS:
+        _assert_not_read_only(exposed[name])
+    _assert_not_read_only(exposed["get_brokers_images"])
+    for tool in exposed.values():
+        description = tool.description or ""
+        read_only = tool.annotations is not None and tool.annotations.read_only_hint is True
+        if "Side effects: none" in description:
+            assert read_only
+        if tool.annotations is not None and tool.annotations.read_only_hint is False:
+            assert "Side effects: none" not in description
+
+
+@pytest.mark.asyncio
+async def test_file_retrieval_middleware_asks_before_running(feature_flags, bundled_spec, monkeypatch):
+    feature_flags(write=True, isolate=False, secret=False)
+    monkeypatch.setenv("MCP_ELICITATION_ENABLED", "true")
+    reload_config()
+    try:
+        server = _annotated_catalog(bundled_spec)
+
+        class _Session:
+            def check_client_capability(self, capability):
+                return True
+
+        class _Ctx:
+            def __init__(self):
+                self.fastmcp = server
+                self.session = _Session()
+                self.request_context = object()
+                self.elicited = False
+
+            async def elicit(self, message, response_type):
+                self.elicited = True
+                assert response_type is WriteConfirmation
+                assert "post_endpoints_file_retrieval" in message
+                return AcceptedElicitation(data=WriteConfirmation(confirm=False))
+
+        ctx = _Ctx()
+        context = MiddlewareContext(
+            message=CallToolRequestParams(name="post_endpoints_file_retrieval", arguments={}),
+            fastmcp_context=ctx,
+            method="tools/call",
+            type="request",
+        )
+
+        async def call_next(seen):
+            raise AssertionError("the tool ran")
+
+        refused = await WriteConfirmationMiddleware().on_call_tool(context, call_next)
+        assert ctx.elicited is True
+        assert refused.is_error is True
+        assert "not confirmed" in refused.content[0].text
+    finally:
+        monkeypatch.delenv("MCP_ELICITATION_ENABLED", raising=False)
+        reload_config()
 
 
 def test_fastmcp_debug_logs_stay_quiet():

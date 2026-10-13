@@ -6,9 +6,15 @@ from fastmcp import FastMCP
 from fastmcp.resources import Resource
 from fastmcp.tools import Tool
 
+from pkg.tool_classification import (
+    SideEffect,
+    align_description,
+    handwritten_side_effect,
+    remember_side_effect,
+)
 from pkg.tool_presentation import (
     LOOSE_OBJECT_OUTPUT_SCHEMA,
-    annotations_for_description,
+    annotations_for_side_effect,
     display_title,
     return_structured_object,
 )
@@ -66,7 +72,7 @@ class BaseModule(ABC):
         """
         pass
 
-    def _add_tool(self, fn: Callable, description: str | None = None):
+    def _add_tool(self, fn: Callable, description: str | None = None, *, side_effect: SideEffect | None = None):
         """
         Add a tool to the MCP instance.
 
@@ -87,15 +93,17 @@ class BaseModule(ABC):
         Example:
             self._add_tool(my_function, "A tool that does something useful")
         """
-        description_text = description if description is not None else (fn.__doc__ or "")
+        kind = side_effect if side_effect is not None else handwritten_side_effect(fn.__name__)
+        description_text = align_description(description if description is not None else (fn.__doc__ or ""), kind)
         title = display_title(description=description_text)
         tool = Tool.from_function(
             return_structured_object(fn),
-            description=description,
+            description=description_text,
             title=title,
-            annotations=annotations_for_description(description_text),
+            annotations=annotations_for_side_effect(kind),
             output_schema=dict(LOOSE_OBJECT_OUTPUT_SCHEMA),
         )
+        remember_side_effect(tool, kind)
         self.mcp.add_tool(tool)
         logger.debug(f"Added tool: {tool.name}")
 

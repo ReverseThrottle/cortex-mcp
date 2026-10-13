@@ -42,8 +42,8 @@ def test_sse_transport_is_rejected():
 
 class _Echo(BaseModule):
     def register_tools(self):
-        self._add_tool(self.echo)
-        self._add_tool(self.needs_int)
+        self._add_tool(self.echo, side_effect="read")
+        self._add_tool(self.needs_int, side_effect="read")
 
     def register_resources(self):
         return None

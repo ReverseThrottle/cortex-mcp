@@ -8,6 +8,7 @@ paths:
         Retrieve a list of all your assets or a filtered list based on specified criteria.
         The maximum result limit is 1000 assets per request.
       operationId: get_assets
+      x-cortex-mcp-side-effect: read
       tags:
         - Assets
       requestBody:

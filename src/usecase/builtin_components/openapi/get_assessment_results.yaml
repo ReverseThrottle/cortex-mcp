@@ -7,6 +7,7 @@ paths:
         Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/compliance/get_assessment_results/).
         Retrieve assessment profile results with optional filtering based on the last successful evaluation.
       operationId: get_assessment_profile_results
+      x-cortex-mcp-side-effect: read
       tags:
         - Assessment Profiles
       requestBody:

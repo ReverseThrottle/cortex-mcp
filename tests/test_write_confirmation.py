@@ -10,6 +10,7 @@ from fastmcp.tools import InputRequiredToolResult
 from mcp.types import CallToolRequestParams, ElicitResult
 
 from config.config import reload_config
+from pkg.tool_classification import SideEffect
 from pkg.write_confirmation import (
     WriteConfirmation,
     WriteConfirmationMiddleware,
@@ -24,8 +25,10 @@ from usecase.builtin_components.xsoar_actions import (
 
 
 class _Tool:
-    def __init__(self, description: str):
-        self.description = description
+    def __init__(self, side_effect: SideEffect | None):
+        self._cortex_side_effect = side_effect
+        self.description = "Side effects: none. This is a read-only Cortex API call"
+        self.name = "post_endpoints_file_retrieval" if side_effect == "action" else "update_case"
 
 
 class _Session:
@@ -37,16 +40,16 @@ class _Session:
 
 
 class _Server:
-    def __init__(self, description: str):
-        self.description = description
+    def __init__(self, side_effect: SideEffect | None = "write"):
+        self.side_effect = side_effect
 
     async def get_tool(self, key: str):
-        return _Tool(self.description)
+        return _Tool(self.side_effect)
 
 
 class _Context:
-    def __init__(self, description: str, supports: bool, confirm: bool | None, action: str = "accept"):
-        self.fastmcp = _Server(description)
+    def __init__(self, side_effect: SideEffect | None, supports: bool, confirm: bool | None, action: str = "accept"):
+        self.fastmcp = _Server(side_effect)
         self.session = _Session(supports)
         self.request_context = object()
         self.elicited = False
@@ -62,10 +65,16 @@ class _Context:
         return AcceptedElicitation(data=WriteConfirmation(confirm=bool(self._confirm)))
 
 
-def _call_context(description: str, supports: bool = True, confirm: bool | None = True, action: str = "accept"):
-    ctx = _Context(description, supports, confirm, action)
+def _call_context(
+    side_effect: SideEffect | None = "write",
+    supports: bool = True,
+    confirm: bool | None = True,
+    action: str = "accept",
+    name: str = "update_case",
+):
+    ctx = _Context(side_effect, supports, confirm, action)
     context = MiddlewareContext(
-        message=CallToolRequestParams(name="update_case", arguments={}),
+        message=CallToolRequestParams(name=name, arguments={}),
         fastmcp_context=cast(Any, ctx),
         method="tools/call",
         type="request",
@@ -90,16 +99,23 @@ def elicitation(monkeypatch):
     reload_config()
 
 
-def test_state_change_detection_ignores_read_only_labels():
-    assert changes_tenant_state("Side effects: this operation changes Cortex tenant state")
-    assert changes_tenant_state("Side effects: this operation creates or replaces a script")
-    assert not changes_tenant_state("Side effects: none. This is a read-only Cortex API call")
+def test_state_change_detection_uses_the_side_effect_class():
+    assert changes_tenant_state(_Tool("write"))
+    assert changes_tenant_state(_Tool("action"))
+    assert changes_tenant_state(_Tool("secret"))
+    assert not changes_tenant_state(_Tool("read"))
+    assert changes_tenant_state(_Tool(None))
+    # A read-only sentence is not a classification. Missing class fails closed.
+    labeled = _Tool("action")
+    labeled.description = "Side effects: none. This is a read-only Cortex API call"
+    assert changes_tenant_state(labeled)
+    assert changes_tenant_state("Side effects: none. This is a read-only Cortex API call")
 
 
 @pytest.mark.asyncio
 async def test_elicitation_disabled_runs_mutating_tools_without_a_prompt(elicitation):
     elicitation(False)
-    context, ctx = _call_context("Side effects: this operation changes tenant state")
+    context, ctx = _call_context("write")
     called = {}
 
     async def call_next(seen):
@@ -117,7 +133,7 @@ async def test_elicitation_confirms_a_write_and_skips_a_lookup(elicitation):
     elicitation(True)
     middleware = WriteConfirmationMiddleware()
 
-    read_context, read_ctx = _call_context("Side effects: none. This is a read-only Cortex API call", supports=False)
+    read_context, read_ctx = _call_context("read", supports=False)
     called = {}
 
     async def call_next(seen):
@@ -127,7 +143,7 @@ async def test_elicitation_confirms_a_write_and_skips_a_lookup(elicitation):
     assert await middleware.on_call_tool(read_context, call_next) == "read"
     assert read_ctx.elicited is False
 
-    write_context, write_ctx = _call_context("Side effects: this operation creates a script", confirm=True)
+    write_context, write_ctx = _call_context("write", confirm=True)
 
     async def call_write(seen):
         called["write"] = True
@@ -142,29 +158,43 @@ async def test_elicitation_confirms_a_write_and_skips_a_lookup(elicitation):
 async def test_elicitation_does_not_run_a_write_without_confirmation(elicitation):
     elicitation(True)
     middleware = WriteConfirmationMiddleware()
-    description = "Side effects: this operation changes Cortex tenant state"
 
     async def call_next(seen):
         raise AssertionError("the tool ran")
 
-    declined, _ = _call_context(description, confirm=False)
+    declined, _ = _call_context("write", confirm=False)
     refused = await middleware.on_call_tool(declined, call_next)
     assert refused.is_error is True
     assert "not confirmed" in refused.content[0].text
 
-    cancelled, _ = _call_context(description, action="decline")
+    cancelled, _ = _call_context("write", action="decline")
     refused = await middleware.on_call_tool(cancelled, call_next)
     assert "not confirmed" in refused.content[0].text
 
-    unsupported, _ = _call_context(description, supports=False)
+    unsupported, _ = _call_context("write", supports=False)
     refused = await middleware.on_call_tool(unsupported, call_next)
     assert refused.is_error is True
     assert "does not support" in refused.content[0].text
 
 
+@pytest.mark.asyncio
+async def test_file_retrieval_asks_for_confirmation_when_writes_are_enabled(elicitation):
+    elicitation(True)
+    middleware = WriteConfirmationMiddleware()
+    context, ctx = _call_context("action", confirm=False, name="post_endpoints_file_retrieval")
+
+    async def call_next(seen):
+        raise AssertionError("the tool ran")
+
+    refused = await middleware.on_call_tool(context, call_next)
+    assert ctx.elicited is True
+    assert refused.is_error is True
+    assert "not confirmed" in refused.content[0].text
+
+
 class _ModernContext:
     def __init__(self, responses=None, supports: bool | None = None):
-        self.fastmcp = _Server("Side effects: this operation changes tenant state")
+        self.fastmcp = _Server("write")
         self.request_context = object()
         self.elicited = False
         self.input_responses = responses

@@ -8,7 +8,12 @@ from typing import Any
 from fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
 
-_READ_ONLY = "Side effects: none"
+from pkg.tool_classification import (
+    SideEffect,
+    align_description,
+    remember_side_effect,
+    side_effect_from_route,
+)
 
 LOOSE_OBJECT_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -33,15 +38,29 @@ _JSON_MEDIA_TYPES = frozenset(
 )
 
 
-def annotations_for_description(description: str | None) -> ToolAnnotations:
-    """Read tools are not destructive. Every tool talks to a Cortex tenant or Broker VM."""
-    read_only = _READ_ONLY in (description or "")
+def annotations_for_side_effect(kind: SideEffect | None) -> ToolAnnotations:
+    """Read tools are not destructive. Anything else fails closed, including an unknown class."""
+    read_only = kind == "read"
     return ToolAnnotations(
         read_only_hint=read_only,
         destructive_hint=not read_only,
         idempotent_hint=read_only,
         open_world_hint=True,
     )
+
+
+def annotations_for_description(
+    description: str | None = None,
+    *,
+    side_effect: SideEffect | None = None,
+) -> ToolAnnotations:
+    """Build annotations from an explicit side-effect class.
+
+    ``description`` is ignored. Matching ``Side effects: none`` made action and
+    secret tools look read-only. A missing class is not read-only.
+    """
+    del description
+    return annotations_for_side_effect(side_effect)
 
 
 def _title_from_line(line: str) -> str | None:
@@ -219,11 +238,25 @@ def _install_default_cloud_instance_sort(component: Any) -> None:
 
 
 def annotate_openapi_component(route: Any, component: Any) -> None:
-    """Apply titles, side-effect annotations, and a matching output schema."""
+    """Apply titles, side-effect annotations, and a matching output schema.
+
+    The side-effect class comes from the operation, not from description text.
+    The published description is rewritten when it disagrees with that class.
+    Download and non-JSON operations publish no output schema. The cloud
+    instance lookup injects a STATUS sort when the caller omits one.
+    """
     if not isinstance(component, Tool):
         return
-    description = component.description or getattr(route, "description", None)
-    component.annotations = annotations_for_description(description)
+    kind = side_effect_from_route(route)
+    description = align_description(
+        component.description or getattr(route, "description", None),
+        kind,
+        method=getattr(route, "method", None),
+        path=getattr(route, "path", None),
+    )
+    component.description = description
+    component.annotations = annotations_for_side_effect(kind)
+    remember_side_effect(component, kind)
     title = display_title(summary=getattr(route, "summary", None), description=description)
     if title:
         component.title = title

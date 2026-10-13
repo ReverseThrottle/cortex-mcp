@@ -40,6 +40,7 @@ paths:
         - The assistant SHOULD NOT expose intermediate pages unless explicitly asked.
 
       operationId: get_vulnerabilities
+      x-cortex-mcp-side-effect: read
       tags:
         - Vulnerabilities
       requestBody:

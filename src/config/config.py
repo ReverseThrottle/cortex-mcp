@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # every tool result looks like indirect prompt injection and costs tokens.
     inline_formatting_instructions: bool = Field(False, validation_alias="MCP_INLINE_FORMATTING_INSTRUCTIONS")
     write_tools_enabled: bool = Field(False, validation_alias="MCP_WRITE_TOOLS_ENABLED")
+    secret_tools_enabled: bool = Field(False, validation_alias="MCP_SECRET_TOOLS_ENABLED")
     isolate_endpoint_tool_enabled: bool = Field(False, validation_alias="MCP_ISOLATE_ENDPOINT_TOOL_ENABLED")
     http_response_error_message_max_size: int = Field(1000, validation_alias="CORTEX_MCP_RESPONSE_ERROR_MAX_SIZE")
     max_retries: int = Field(3, validation_alias="CORTEX_MCP_MAX_RETRIES")
