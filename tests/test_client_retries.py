@@ -13,9 +13,11 @@ from pkg.client import PAPIClient, _backoff_seconds
 
 
 class _RetryConfig:
-    def __init__(self, max_retries: int) -> None:
+    def __init__(self, max_retries: int, *, timeout_s: float = 20.0, deadline_s: float = 1200.0) -> None:
         self.max_retries = max_retries
         self.http_response_error_message_max_size = 1000
+        self.cortex_timeout_s = timeout_s
+        self.cortex_call_deadline_s = deadline_s
 
 
 def _client(handler, monkeypatch, max_retries: int = 3) -> PAPIClient:

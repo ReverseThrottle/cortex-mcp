@@ -7,10 +7,10 @@ import logging
 import random
 import zlib
 from json import JSONDecodeError
-from typing import Literal, assert_never
+from typing import Literal, NoReturn, assert_never
 
 import httpx2 as httpx
-from httpx2 import ConnectError, RequestError, TimeoutException
+from httpx2 import ConnectError, ReadTimeout, RequestError, TimeoutException
 
 from config.config import get_config
 from entities.exceptions import (
@@ -18,8 +18,20 @@ from entities.exceptions import (
     PAPIClientError,
     PAPIClientRequestError,
     PAPIConnectionError,
+    PAPIDeadlineError,
     PAPIResponseError,
     PAPIServerError,
+)
+from pkg.call_deadline import (
+    arm_call_deadline,
+    armed_budget_seconds,
+    call_deadline_is_set,
+    deadline_exhausted,
+    endpoint_label,
+    is_slow_report_or_search,
+    remaining_seconds,
+    reset_call_deadline,
+    upstream_timeout_message,
 )
 from pkg.util import get_papi_auth_headers
 
@@ -39,6 +51,8 @@ _PASSTHROUGH_HEADERS = {
 
 # Confirmed full jitter: sleep a uniform value in [0, min(cap, base * 2**attempt)].
 # The failed attempt starts at 0, so the first retry sleeps in [0, base].
+# Read timeouts on report and search endpoints are not retried. Backoff and
+# later attempts stop when the tool-call deadline is exhausted.
 _RETRY_STATUS_CODES = {429, 503}
 _RETRY_BASE_SECONDS = 0.5
 _RETRY_CAP_SECONDS = 8.0
@@ -189,7 +203,7 @@ class PAPIClient(httpx.AsyncClient):
         api_key: str,
         api_key_id: str,
         key_type: Literal["standard", "advanced"] = "standard",
-        timeout: int = 30,
+        timeout: float | None = None,
         **kwargs,
     ):
         """
@@ -202,6 +216,8 @@ class PAPIClient(httpx.AsyncClient):
         self._api_key_id = str(api_key_id)
         self._key_type = key_type
 
+        if timeout is None:
+            timeout = float(get_config().cortex_timeout_s)
         if "timeout" not in kwargs:
             kwargs["timeout"] = timeout
 
@@ -243,7 +259,58 @@ class PAPIClient(httpx.AsyncClient):
         )
 
     async def _pause_before_retry(self, attempt: int) -> None:
-        await asyncio.sleep(_backoff_seconds(attempt))
+        delay = _backoff_seconds(attempt)
+        remaining = remaining_seconds()
+        if remaining is not None:
+            delay = min(delay, max(0.0, remaining))
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+    def _configured_read_timeout(self, request: httpx.Request) -> float:
+        extension = request.extensions.get("timeout")
+        if isinstance(extension, dict):
+            read = extension.get("read")
+            if isinstance(read, int | float) and not isinstance(read, bool):
+                return float(read)
+        client_read = self.timeout.read if isinstance(self.timeout, httpx.Timeout) else None
+        if isinstance(client_read, int | float) and not isinstance(client_read, bool):
+            return float(client_read)
+        remaining = remaining_seconds()
+        if remaining is not None and remaining > 0:
+            return remaining
+        return float(get_config().cortex_timeout_s)
+
+    def _apply_attempt_timeout(self, request: httpx.Request) -> float:
+        """Cap this attempt so it cannot outlive the tool-call deadline."""
+        limit = self._configured_read_timeout(request)
+        remaining = remaining_seconds()
+        if remaining is not None:
+            limit = min(limit, max(remaining, 0.0))
+        extensions = dict(request.extensions)
+        extensions["timeout"] = httpx.Timeout(limit).as_dict()
+        request.extensions = extensions
+        return limit
+
+    def _retry_transport(self, exc: RequestError, url: str, attempt: int, max_retries: int) -> bool:
+        if isinstance(exc, ReadTimeout) and is_slow_report_or_search(url):
+            return False
+        if attempt >= max_retries:
+            return False
+        if deadline_exhausted():
+            return False
+        return True
+
+    def _give_up_transport(self, exc: RequestError, url: str, attempt_timeout: float) -> NoReturn:
+        slow_read = isinstance(exc, ReadTimeout) and is_slow_report_or_search(url)
+        if slow_read or deadline_exhausted():
+            seconds = attempt_timeout if slow_read else armed_budget_seconds()
+            logger.warning(
+                "Cortex API timed out for %s after %s",
+                endpoint_label(url),
+                type(exc).__name__,
+            )
+            raise PAPIDeadlineError(upstream_timeout_message(url, seconds)) from exc
+        raise exc
 
     def _ensure_json_body(self, request: httpx.Request) -> httpx.Request:
         """Give an empty write a JSON object body before auth headers are applied.
@@ -273,6 +340,18 @@ class PAPIClient(httpx.AsyncClient):
         )
 
     async def send(self, request: httpx.Request, **kwargs) -> httpx.Response:
+        # A tool call arms one deadline for every request it makes. A direct
+        # client call arms its own so retries still cannot outlive the budget.
+        deadline_tokens = None
+        if not call_deadline_is_set():
+            deadline_tokens = arm_call_deadline(float(get_config().cortex_call_deadline_s))
+        try:
+            return await self._send_with_retries(request, **kwargs)
+        finally:
+            if deadline_tokens is not None:
+                reset_call_deadline(deadline_tokens)
+
+    async def _send_with_retries(self, request: httpx.Request, **kwargs) -> httpx.Response:
         await request.aread()
         # Sign after cloning the unsigned template. A 429/503 that reached the
         # tenant consumes the nonce, so each attempt needs its own advanced hash.
@@ -282,25 +361,29 @@ class PAPIClient(httpx.AsyncClient):
         max_retries = get_config().max_retries
         attempt = 0
         while True:
+            if deadline_exhausted():
+                logger.warning("Cortex call deadline reached for %s", endpoint_label(str(request.url)))
+                raise PAPIDeadlineError(upstream_timeout_message(str(request.url), armed_budget_seconds()))
             outgoing = request if attempt == 0 else self._clone_request(template)
+            attempt_timeout = self._apply_attempt_timeout(outgoing)
             self._apply_auth_headers(outgoing)
             try:
                 response = await super().send(outgoing, **kwargs)
             except (ConnectError, TimeoutException, RequestError) as exc:
-                if attempt >= max_retries:
-                    raise
-                logger.warning(
-                    "Retrying %s %s after %s (retry %s of %s)",
-                    outgoing.method,
-                    outgoing.url,
-                    type(exc).__name__,
-                    attempt + 1,
-                    max_retries,
-                )
-                await self._pause_before_retry(attempt)
-                attempt += 1
-                continue
-            if response.status_code in _RETRY_STATUS_CODES and attempt < max_retries:
+                if self._retry_transport(exc, str(outgoing.url), attempt, max_retries):
+                    logger.warning(
+                        "Retrying %s %s after %s (retry %s of %s)",
+                        outgoing.method,
+                        outgoing.url,
+                        type(exc).__name__,
+                        attempt + 1,
+                        max_retries,
+                    )
+                    await self._pause_before_retry(attempt)
+                    attempt += 1
+                    continue
+                self._give_up_transport(exc, str(outgoing.url), attempt_timeout)
+            if response.status_code in _RETRY_STATUS_CODES and attempt < max_retries and not deadline_exhausted():
                 logger.warning(
                     "Retrying %s %s after HTTP %s (retry %s of %s)",
                     outgoing.method,
@@ -587,7 +670,13 @@ class PAPIClient(httpx.AsyncClient):
         except RequestError as e:
             logger.exception(f"Request failed for request to {url}: {e}")
             raise PAPIConnectionError(f"Request failed for {url}: {e}") from e
-        except (PAPIAuthenticationError, PAPIClientRequestError, PAPIServerError, PAPIResponseError):
+        except (
+            PAPIAuthenticationError,
+            PAPIClientRequestError,
+            PAPIServerError,
+            PAPIResponseError,
+            PAPIDeadlineError,
+        ):
             # Re-raise our custom exceptions without wrapping
             raise
         except Exception as e:

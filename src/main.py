@@ -19,6 +19,7 @@ from fastmcp.server.providers.openapi.routing import MCPType
 from starlette.middleware import Middleware
 
 from config.config import get_config
+from pkg.call_deadline import ToolCallDeadlineMiddleware
 from pkg.client import PAPIClient
 from pkg.input_validation import JsonSchemaInputMiddleware
 from pkg.portkey_session import PortkeySessionAdapter
@@ -205,6 +206,10 @@ async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, au
         )
     )
     mcp.add_middleware(ResponseEnvelopeMiddleware())
+    # Inside the envelope so a deadline failure is still a JSON tool result.
+    # The HTTP client uses the same budget for retries. The backstop here
+    # cancels a call that is still running when CORTEX_MCP_CALL_DEADLINE_S elapses.
+    mcp.add_middleware(ToolCallDeadlineMiddleware())
     mcp.add_middleware(JsonSchemaInputMiddleware())
     mcp.add_middleware(WriteConfirmationMiddleware())
 
@@ -213,7 +218,7 @@ async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, au
 
     # Discover mcp components from openapi specs and import them
     spec = bundle_openapi_from_folders()
-    # Catalog calls include scans, exports, and XQL streams that outlive the 30s default.
+    # Per-attempt timeout is CORTEX_MCP_TIMEOUT_S. The call deadline caps it.
     open_api_mcp = FastMCP.from_openapi(
         spec,
         PAPIClient(
@@ -221,7 +226,7 @@ async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, au
             api_key,
             api_key_id,
             key_type=get_config().papi_key_type,
-            timeout=300,
+            timeout=get_config().cortex_timeout_s,
         ),
         route_map_fn=openapi_route_map,
         mcp_component_fn=annotate_openapi_component,
