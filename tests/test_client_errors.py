@@ -12,6 +12,7 @@ from entities.exceptions import (
 from pkg.client import PAPIClient
 
 # Settings.max_retries defaults to 3 extra attempts (4 calls) for 429, 503, and connection errors.
+# A ReadTimeout on a search path is not retried.
 _DEFAULT_RETRY_CALLS = 4
 
 _STATUS_ERRORS = [
@@ -82,7 +83,7 @@ async def test_stream_maps_http_status(status, expected, calls):
     ("error", "expected", "calls"),
     [
         (httpx.ConnectError("down"), PAPIConnectionError, _DEFAULT_RETRY_CALLS),
-        (httpx.ReadTimeout("slow"), PAPIConnectionError, _DEFAULT_RETRY_CALLS),
+        (httpx.ReadTimeout("slow"), PAPIConnectionError, 1),
         (httpx.RemoteProtocolError("bad protocol"), PAPIConnectionError, _DEFAULT_RETRY_CALLS),
         (RuntimeError("boom"), PAPIClientError, 1),
     ],

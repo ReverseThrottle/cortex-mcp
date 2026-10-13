@@ -174,9 +174,15 @@ All configuration is via environment variables (or a `.env` file in the project 
 | `LOG_ENABLE_UVICORN_ACCESS_LOGS` | `true` | Toggle uvicorn HTTP access logs |
 | `MAX_OBJECTS_TO_RETRIEVE` | `50` | Default page size for list operations |
 | `CORTEX_MCP_RESPONSE_ERROR_MAX_SIZE` | `1000` | Max characters of error detail returned to the LLM |
-| `CORTEX_MCP_MAX_RETRIES` | `3` | Extra attempts after the first request when the Cortex call fails to connect or returns HTTP 429 or 503 |
+| `CORTEX_MCP_MAX_RETRIES` | `3` | Extra attempts after the first request when the Cortex call fails to connect, times out, or returns HTTP 429 or 503 |
+| `CORTEX_MCP_TIMEOUT_S` | `20` | Seconds for one Cortex HTTP attempt (connect, write, and read) |
+| `CORTEX_MCP_CALL_DEADLINE_S` | `45` | Wall-clock seconds for one `tools/call`, including retries and backoff |
 | `MCP_TOOL_CALLS_PER_SECOND` | `10` | Sustained `tools/call` rate for the whole process. `tools/list` is not counted. |
 | `MCP_TOOL_CALL_BURST` | `20` | Maximum `tools/call` burst before the limit returns an error. |
+
+`CORTEX_MCP_CALL_DEADLINE_S` is the hard stop for a tool call. The default is under the MCP client's usual 60 second request timeout, so the tool can return an `isError` result instead of the client failing with JSON-RPC `-32001` (`Request timed out`). A read timeout on a report or search endpoint, including `post_mth_child_get_all_reports`, is not retried. Connection errors and HTTP 429 or 503 still retry until the retry limit or the deadline, whichever comes first. A longer timeout passed by an export or XQL helper cannot outlive the deadline.
+
+The gateway or MCP client has its own timer. Prisma AIRS / Portkey and the TypeScript MCP SDK use `MCP_REQUEST_TIMEOUT_MS` (SDK default `60000`). That variable is not read by cortex-mcp. Keep it higher than `CORTEX_MCP_CALL_DEADLINE_S` in milliseconds. Raise the deadline only when that client timeout is raised with it.
 
 ### Optional — on-appliance Broker VM
 
@@ -993,6 +999,10 @@ cortex-mcp/
 **`Missing authentication headers`** — Ensure `CORTEX_MCP_PAPI_AUTH_HEADER` and `CORTEX_MCP_PAPI_AUTH_ID` are set correctly.
 
 **`Connection refused` / network errors** — Verify `CORTEX_MCP_PAPI_URL` is reachable from your machine and does not include a trailing `/`.
+
+**`MCP error -32001: Request timed out`** — The MCP client gave up before this server answered. A slow report such as `post_mth_child_get_all_reports` should instead return an `isError` tool result: `Cortex API did not respond within 20 s for mth/child/get_all_reports`. Keep `CORTEX_MCP_CALL_DEADLINE_S` below the client timeout. On a Prisma AIRS / Portkey gateway that timeout is `MCP_REQUEST_TIMEOUT_MS` (default `60000`).
+
+**`Cortex API did not respond within …`** — The upstream attempt hit `CORTEX_MCP_TIMEOUT_S`, or the whole tool call hit `CORTEX_MCP_CALL_DEADLINE_S`. Report and search reads are not retried after a read timeout. Narrow the query, or raise both this server's deadline and the gateway's `MCP_REQUEST_TIMEOUT_MS` together.
 
 **Tool not appearing in the AI client** — Check the server logs for registration errors. Confirm the module class inherits from `BaseModule` and calls `super().__init__(mcp)`.
 

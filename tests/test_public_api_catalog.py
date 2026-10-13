@@ -546,7 +546,8 @@ def test_openapi_route_map_hides_non_read_catalog_tools(feature_flags):
     assert openapi_route_map(_route("secret"), MCPType.TOOL) is None
     text = Path(inspect.getsourcefile(initialize_mcp_server)).read_text()
     assert "route_map_fn=openapi_route_map" in text
-    assert "timeout=300" in text
+    assert "cortex_timeout_s" in text
+    assert "ToolCallDeadlineMiddleware" in text
     assert "from fastmcp.server.providers.openapi.routing import MCPType" in text
     assert "stateless_http=True" in text
     assert "host_origin_protection=True" in text

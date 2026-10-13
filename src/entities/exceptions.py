@@ -18,6 +18,12 @@ class PAPIConnectionError(PAPIClientError):
     pass
 
 
+class PAPIDeadlineError(PAPIConnectionError):
+    """Raised when a Cortex call does not answer before the tool-call deadline."""
+
+    pass
+
+
 class PAPIAuthenticationError(PAPIClientError):
     """Raised when there's an authentication issue with the PAPI server"""
 

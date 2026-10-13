@@ -110,7 +110,8 @@ class Fetcher:
             stream (bool, optional): Whether to stream response. Defaults to False.
             files (dict, optional): Multipart file payload. When set, the body is not sent as JSON.
             raw (bool, optional): Return the response body bytes instead of parsed JSON.
-            timeout (int, optional): Request timeout in seconds. Defaults to the client timeout.
+            timeout (int, optional): Request timeout in seconds. Defaults to CORTEX_MCP_TIMEOUT_S.
+                The tool-call deadline still caps the attempt.
 
         Returns:
             dict: The response from the request.
@@ -126,7 +127,7 @@ class Fetcher:
             self.api_key,
             self.api_key_id,
             key_type=self.key_type,
-            timeout=timeout or 30,
+            timeout=timeout,
         ) as client:
             if raw:
                 result = await client.request(
