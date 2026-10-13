@@ -17,6 +17,7 @@ from main import initialize_mcp_server, openapi_route_map
 from pkg.client import PAPIClient
 from pkg.setup_logging import configure_library_logging
 from pkg.util import bundle_openapi_from_folders
+from usecase.builtin_components.content_exports import BINARY_EXPORT_OPERATION_IDS
 from usecase.custom_components import xql_query as xql_query_module
 from usecase.custom_components.xql_query import decode_xql_stream, run_xql_query
 from usecase.fetcher import get_fetcher
@@ -47,6 +48,9 @@ REQUIRED_PATHS = (
 READ_ONLY_PYTHON_TOOLS = {
     "get_cases",
     "get_issues",
+    "get_performance_incident_export_by_incident_id",
+    "post_playbooks_get",
+    "post_scripts_get",
     "post_xql_get_query_results_stream",
 }
 
@@ -297,7 +301,11 @@ async def test_python_tools_follow_the_write_and_isolate_flags(openapi_server, f
     both_names = set(await _tool_map(both))
     catalog_names = set(await _tool_map(openapi_server))
     assert WRITE_PYTHON_TOOLS | ISOLATE_PYTHON_TOOLS | READ_ONLY_PYTHON_TOOLS <= both_names
-    assert both_names.isdisjoint(catalog_names)
+    # The unmapped catalog still lists the zip and gzip exports. openapi_route_map
+    # drops those operation ids so the handwritten tools are the only copies.
+    assert both_names.isdisjoint(catalog_names - BINARY_EXPORT_OPERATION_IDS)
+    assert BINARY_EXPORT_OPERATION_IDS <= both_names
+    assert BINARY_EXPORT_OPERATION_IDS <= catalog_names
     isolate = (await _tool_map(both))["isolate_endpoint"]
     assert "Side effects:" in (isolate.description or "")
 

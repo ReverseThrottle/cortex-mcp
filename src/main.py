@@ -30,6 +30,7 @@ from pkg.tool_rate_limit import ToolCallRateLimitMiddleware
 from pkg.util import bundle_openapi_from_folders, get_papi_url
 from pkg.write_confirmation import WriteConfirmationMiddleware
 from service.cortex_mcp.server import create_mcp_server
+from usecase.builtin_components.content_exports import BINARY_EXPORT_OPERATION_IDS
 from usecase.module_util import discover_and_register_modules
 from version import __version__
 
@@ -167,7 +168,13 @@ async def async_main(transport: str):
 
 
 def openapi_route_map(route, mcp_type):
-    """Hide mutating catalog tools unless MCP_WRITE_TOOLS_ENABLED is set."""
+    """Hide binary exports, and hide mutating catalog tools unless writes are enabled.
+
+    Playbook, script, and incident-performance exports return zip or gzip.
+    Handwritten tools own those operation ids, so the catalog copies are excluded.
+    """
+    if getattr(route, "operation_id", None) in BINARY_EXPORT_OPERATION_IDS:
+        return MCPType.EXCLUDE
     if get_config().write_tools_enabled:
         return None
     description = getattr(route, "description", "") or ""
