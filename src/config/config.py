@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     isolate_endpoint_tool_enabled: bool = Field(False, validation_alias="MCP_ISOLATE_ENDPOINT_TOOL_ENABLED")
     http_response_error_message_max_size: int = Field(1000, validation_alias="CORTEX_MCP_RESPONSE_ERROR_MAX_SIZE")
     max_retries: int = Field(3, validation_alias="CORTEX_MCP_MAX_RETRIES")
+    # Catalog replies such as compliance controls ignore search_to and can be
+    # several megabytes. The response envelope slices them under this cap.
+    mcp_max_response_bytes: int = Field(262144, validation_alias="MCP_MAX_RESPONSE_BYTES")
 
     # --- PAPI Settings ---
     papi_url_env_key: str = Field("", validation_alias="CORTEX_MCP_PAPI_URL")

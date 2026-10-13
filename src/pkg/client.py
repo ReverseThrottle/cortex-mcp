@@ -42,6 +42,7 @@ _PASSTHROUGH_HEADERS = {
 _RETRY_STATUS_CODES = {429, 503}
 _RETRY_BASE_SECONDS = 0.5
 _RETRY_CAP_SECONDS = 8.0
+_JSON_BODY_METHODS = {"POST", "PUT", "PATCH"}
 
 
 def _backoff_seconds(attempt: int) -> float:
@@ -244,11 +245,39 @@ class PAPIClient(httpx.AsyncClient):
     async def _pause_before_retry(self, attempt: int) -> None:
         await asyncio.sleep(_backoff_seconds(attempt))
 
+    def _ensure_json_body(self, request: httpx.Request) -> httpx.Request:
+        """Give an empty write a JSON object body before auth headers are applied.
+
+        OpenAPI tools call ``send()`` directly. ``_get_default_headers()`` only
+        covers ``request()``, so a POST with no arguments leaves the tenant
+        with no ``Content-Type`` and a 415. Multipart uploads keep their own
+        body and boundary.
+        """
+        if request.method.upper() not in _JSON_BODY_METHODS:
+            return request
+        content_type = request.headers.get("content-type", "")
+        if content_type.lower().startswith("multipart/"):
+            return request
+        if request.content:
+            return request
+        headers = httpx.Headers(request.headers)
+        if "content-length" in headers:
+            del headers["content-length"]
+        headers["Content-Type"] = "application/json"
+        return httpx.Request(
+            method=request.method,
+            url=request.url,
+            headers=headers,
+            content=b"{}",
+            extensions=dict(request.extensions),
+        )
+
     async def send(self, request: httpx.Request, **kwargs) -> httpx.Response:
         await request.aread()
         # Sign after cloning the unsigned template. A 429/503 that reached the
         # tenant consumes the nonce, so each attempt needs its own advanced hash.
         self._strip_untrusted_headers(request)
+        request = self._ensure_json_body(request)
         template = self._clone_request(request)
         max_retries = get_config().max_retries
         attempt = 0
