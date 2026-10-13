@@ -177,6 +177,10 @@ async def test_catalog_covers_documented_operations_without_credential_parameter
     assert asset_posts == ["get_assets"]
     assert "get_filtered_endpoints" in tools
     assert any("POST /public_api/v1/endpoints/get_endpoints" in description for description in descriptions.values())
+    edit_profile = tools["post_compliance_edit_assessment_profile"]
+    edit_properties = (edit_profile.parameters or {}).get("properties") or {}
+    assert "request_data" in edit_properties
+    assert "" not in edit_properties
 
 
 def test_catalog_schemas_match_the_documented_calls(bundled_spec):
@@ -248,6 +252,143 @@ def test_catalog_schemas_match_the_documented_calls(bundled_spec):
         value = filter_value(path)
         assert value.get("type") != "string"
         assert any(branch.get("type") in {"number", "integer"} for branch in value["anyOf"])
+
+
+# Documented bodies that do not use the Cortex request_data envelope.
+REQUEST_DATA_ALLOW_LIST = frozenset(
+    {
+        "/public_api/v1/brokers/{device_id}/applets/{applet_name}/config/",
+        "/public_api/v1/brokers/{device_id}/applets/{applet_name}/activate/",
+        "/public_api/v1/brokers/{device_id}/applets/{applet_name}/deactivate/",
+        "/public_api/v1/brokers/{device_id}/applets/wec/wef_cert/",
+        "/public_api/v1/brokers/{device_id}/",
+        "/public_api/v1/entries/get",
+        "/public_api/v1/entries/insert",
+        "/public_api/v1/cwp/policies",
+        "/public_api/v1/cwp/registry_onboarding/instances",
+        "/public_api/v1/distributions/get_versions",
+        "/public_api/v1/legacy_exceptions/get_modules",
+        "/public_api/v1/get_risky_users",
+        "/public_api/v1/get_risky_hosts",
+        "/public_api/v1/xql/get_quota",
+        "/public_api/v1/dataset/get_created_datasets",
+        "/public_api/v1/data-security/data-patterns",
+        "/public_api/v1/data-security/objects/fields",
+        "/public_api/v1/data-security/objects/files",
+        "/public_api/v1/rule",
+        "/public_api/v1/rule/search",
+        "/public_api/v1/mth/child/report/update/assign",
+        "/public_api/v1/mth/child/add_comment",
+        "/public_api/v1/mth/child/report/update/status",
+        "/public_api/v1/policy",
+        "/public_api/v1/policy/search",
+    }
+)
+
+ENVELOPE_FIELDS = {
+    "/public_api/v1/mth/child/get_comments": "xsoar_source_id",
+    "/public_api/v1/mth/child/get_reports_by_statuses": "report_statuses",
+    "/public_api/v1/mth/child/get_reports_by_source_id": "xsoar_source_ids",
+    "/public_api/v1/mth/child/get_reports_by_incident_id": "incident_ids",
+    "/public_api/v1/cloud_onboarding/get_identifiers": "instance_id",
+}
+
+
+def _resolve_schema(spec: dict, schema: dict, seen: set[str] | None = None) -> dict:
+    if not isinstance(schema, dict):
+        return {}
+    seen = set() if seen is None else set(seen)
+    ref = schema.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/"):
+        if ref in seen:
+            return {}
+        seen.add(ref)
+        node = spec
+        for part in ref[2:].split("/"):
+            node = node[part]
+        return _resolve_schema(spec, node, seen)
+    if "allOf" in schema:
+        merged: dict = {"properties": {}, "required": []}
+        for part in schema["allOf"]:
+            piece = _resolve_schema(spec, part, seen)
+            merged["properties"].update(piece.get("properties") or {})
+            for name in piece.get("required") or []:
+                if name not in merged["required"]:
+                    merged["required"].append(name)
+        for key, value in schema.items():
+            if key == "allOf":
+                continue
+            if key == "properties" and isinstance(value, dict):
+                merged["properties"].update(value)
+            elif key == "required" and isinstance(value, list):
+                for name in value:
+                    if name not in merged["required"]:
+                        merged["required"].append(name)
+            else:
+                merged[key] = value
+        return merged
+    return schema
+
+
+def _post_schema(spec: dict, path: str) -> dict:
+    operation = spec["paths"][path]["post"]
+    schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    return _resolve_schema(spec, schema)
+
+
+def test_public_api_posts_use_request_data_and_gets_have_no_body(bundled_spec):
+    gets_with_body = [
+        f"GET {path}"
+        for path, methods in bundled_spec["paths"].items()
+        for method, operation in methods.items()
+        if method.lower() == "get" and isinstance(operation, dict) and "requestBody" in operation
+    ]
+    assert gets_with_body == []
+
+    missing = []
+    for path, methods in bundled_spec["paths"].items():
+        if not path.startswith("/public_api/v1/"):
+            continue
+        operation = methods.get("post")
+        if not isinstance(operation, dict) or "requestBody" not in operation:
+            continue
+        properties = _post_schema(bundled_spec, path).get("properties") or {}
+        if "request_data" not in properties and path not in REQUEST_DATA_ALLOW_LIST:
+            missing.append(path)
+    assert missing == []
+
+    for path in REQUEST_DATA_ALLOW_LIST:
+        assert "request_data" not in (_post_schema(bundled_spec, path).get("properties") or {})
+
+    for path, field in ENVELOPE_FIELDS.items():
+        schema = _post_schema(bundled_spec, path)
+        assert schema["required"] == ["request_data"]
+        assert list(schema["properties"]) == ["request_data"]
+        assert field in schema["properties"]["request_data"]["properties"]
+
+    categories = _post_schema(bundled_spec, "/public_api/v1/compliance/get_control_categories_and_subcategories")
+    request_data = categories["properties"]["request_data"]
+    assert categories["required"] == ["request_data"]
+    assert request_data["default"] == {}
+    assert request_data["additionalProperties"] is False
+    assert request_data["maxProperties"] == 0
+
+    assessment = _post_schema(bundled_spec, "/public_api/v1/compliance/get_assessment_results/")
+    assert "request_data" in assessment["required"]
+    assert assessment["properties"]["request_data"]["default"] == {}
+
+    edit_profile = _post_schema(bundled_spec, "/public_api/v1/compliance/edit_assessment_profile")
+    assert edit_profile["required"] == ["request_data"]
+    assert list(edit_profile["properties"]) == ["request_data"]
+    assert "id" in edit_profile["properties"]["request_data"]["properties"]
+
+    images = bundled_spec["paths"]["/public_api/v1/brokers/images/"]["get"]
+    assert "requestBody" not in images
+    image_type = images["parameters"][0]
+    assert image_type["name"] == "type"
+    assert image_type["in"] == "query"
+    assert image_type["required"] is True
+    assert image_type["schema"]["enum"] == ["OVA", "QCOW2", "VHD", "VHD_AZURE", "VMDK"]
 
 
 def test_existing_helpers_are_not_duplicated_in_the_catalog(bundled_spec):

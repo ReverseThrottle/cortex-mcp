@@ -66,9 +66,14 @@ components:
   schemas:
     AssessmentProfileRequest:
       type: object
+      required:
+        - request_data
       properties:
         request_data:
-          $ref: '#/components/schemas/AssessmentProfileRequestPayload'
+          allOf:
+            - $ref: '#/components/schemas/AssessmentProfileRequestPayload'
+          default: {}
+          description: Optional filters. An empty object returns every assessment profile result.
 
     AssessmentProfileRequestPayload:
       type: object

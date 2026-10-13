@@ -10313,36 +10313,6 @@
           "500": {
             "description": "Server error"
           }
-        },
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "description": "Optional filters for [`getBrokers`](#operation/getBrokers). Omit\nthe body entirely to return every broker.\n",
-                "additionalProperties": false,
-                "properties": {
-                  "id": {
-                    "type": "array",
-                    "description": "Exact-match filter on `device_id`.",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "name": {
-                    "type": "array",
-                    "description": "Filter on `device_name`. A value containing shell-style\nwildcards (`*`, `?`) is matched with `fnmatch`\n(case-insensitive); a value without wildcards is matched\nexactly (case-sensitive). Multiple values are OR-combined.\n",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              }
-            }
-          }
         }
       }
     },
@@ -10774,34 +10744,25 @@
             "description": "Server error"
           }
         },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "description": "Body for `downloadInstallImage`. The `type` selector picks the hypervisor image format.\n",
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "additionalProperties": false,
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "description": "Hypervisor format of a Broker VM install image.",
-                    "enum": [
-                      "OVA",
-                      "QCOW2",
-                      "VHD",
-                      "VHD_AZURE",
-                      "VMDK"
-                    ]
-                  }
-                }
-              }
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "description": "Hypervisor format of a Broker VM install image.",
+            "schema": {
+              "type": "string",
+              "description": "Hypervisor format of a Broker VM install image.",
+              "enum": [
+                "OVA",
+                "QCOW2",
+                "VHD",
+                "VHD_AZURE",
+                "VMDK"
+              ]
             }
           }
-        }
+        ]
       }
     },
     "/public_api/v1/brokers/{device_id}/logs/generate/": {
@@ -12036,144 +11997,7 @@
               "type": "string"
             }
           }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "description": "Optional request body for CIEM access GET endpoints, supporting filtering and sorting.",
-                "properties": {
-                  "filter": {
-                    "type": "object",
-                    "description": "Optional filters to apply to the results.",
-                    "properties": {
-                      "AND": {
-                        "type": "array",
-                        "description": "A list of filter conditions combined with AND logic.",
-                        "items": {
-                          "type": "object",
-                          "description": "Filter object for the CIEM access GET endpoints.",
-                          "required": [
-                            "SEARCH_FIELD",
-                            "SEARCH_TYPE",
-                            "SEARCH_VALUE"
-                          ],
-                          "properties": {
-                            "SEARCH_FIELD": {
-                              "type": "string",
-                              "description": "Identifies the field to filter.",
-                              "enum": [
-                                "access_levels",
-                                "account_access_transformed",
-                                "dest_cloud_account_id",
-                                "dest_cloud_account_name",
-                                "dest_cloud_region",
-                                "dest_cloud_resource_id",
-                                "dest_cloud_resource_name",
-                                "dest_cloud_resource_type",
-                                "dest_cloud_resource_uai",
-                                "dest_cloud_service_name",
-                                "destCategory",
-                                "destination_access_labels",
-                                "excessive_policies_count",
-                                "grantedby_cloud_entity_id",
-                                "grantedby_cloud_entity_name",
-                                "grantedby_cloud_entity_type",
-                                "grantedby_cloud_entity_uai",
-                                "granterCategory",
-                                "last_used",
-                                "permission_scope",
-                                "source_cloud_account_id",
-                                "source_cloud_account_is_vendor",
-                                "source_cloud_account_name",
-                                "source_cloud_region",
-                                "source_cloud_resource_id",
-                                "source_cloud_resource_name",
-                                "source_cloud_resource_type",
-                                "source_cloud_resource_uai",
-                                "source_cloud_service_name",
-                                "sourceCategory",
-                                "sourceVendorName",
-                                "unused_actions_count"
-                              ]
-                            },
-                            "SEARCH_TYPE": {
-                              "type": "string",
-                              "description": "Identifies the comparison operator you want to use for this filter. Valid values are:\n- `EQ`",
-                              "enum": [
-                                "EQ"
-                              ]
-                            },
-                            "SEARCH_VALUE": {
-                              "type": "string",
-                              "description": "Value that this filter must match."
-                            }
-                          }
-                        }
-                      }
-                    }
-                  },
-                  "sort": {
-                    "type": "array",
-                    "description": "Optional sorting criteria for the results. The sort array is passed through as-is to the underlying Cortex Platform data endpoint.",
-                    "items": {
-                      "type": "object",
-                      "required": [
-                        "field",
-                        "order"
-                      ],
-                      "properties": {
-                        "field": {
-                          "type": "string",
-                          "description": "The field to sort by.",
-                          "enum": [
-                            "account_access_transformed",
-                            "dest_cloud_account_id",
-                            "dest_cloud_account_name",
-                            "dest_cloud_resource_id",
-                            "dest_cloud_resource_name",
-                            "dest_cloud_resource_type",
-                            "dest_cloud_resource_uai",
-                            "dest_cloud_service_name",
-                            "excessive_policies_count",
-                            "grantedby_cloud_entity_id",
-                            "grantedby_cloud_entity_name",
-                            "grantedby_cloud_entity_type",
-                            "grantedby_cloud_entity_uai",
-                            "is_last_access_supported",
-                            "last_used",
-                            "permission_scope",
-                            "source_cloud_account_id",
-                            "source_cloud_account_is_vendor",
-                            "source_cloud_account_name",
-                            "source_cloud_resource_id",
-                            "source_cloud_resource_name",
-                            "source_cloud_resource_type",
-                            "source_cloud_resource_uai",
-                            "source_cloud_service_name",
-                            "unused_actions_count"
-                          ]
-                        },
-                        "order": {
-                          "type": "string",
-                          "description": "The sort order.",
-                          "enum": [
-                            "ASC",
-                            "DESC"
-                          ]
-                        }
-                      }
-                    },
-                    "minItems": 1,
-                    "maxItems": 1
-                  }
-                }
-              }
-            }
-          }
-        }
+        ]
       }
     },
     "/public_api/ciem/v1/access/granter/{granter_uai}": {
@@ -12220,144 +12044,7 @@
               "type": "string"
             }
           }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "description": "Optional request body for CIEM access GET endpoints, supporting filtering and sorting.",
-                "properties": {
-                  "filter": {
-                    "type": "object",
-                    "description": "Optional filters to apply to the results.",
-                    "properties": {
-                      "AND": {
-                        "type": "array",
-                        "description": "A list of filter conditions combined with AND logic.",
-                        "items": {
-                          "type": "object",
-                          "description": "Filter object for the CIEM access GET endpoints.",
-                          "required": [
-                            "SEARCH_FIELD",
-                            "SEARCH_TYPE",
-                            "SEARCH_VALUE"
-                          ],
-                          "properties": {
-                            "SEARCH_FIELD": {
-                              "type": "string",
-                              "description": "Identifies the field to filter.",
-                              "enum": [
-                                "access_levels",
-                                "account_access_transformed",
-                                "dest_cloud_account_id",
-                                "dest_cloud_account_name",
-                                "dest_cloud_region",
-                                "dest_cloud_resource_id",
-                                "dest_cloud_resource_name",
-                                "dest_cloud_resource_type",
-                                "dest_cloud_resource_uai",
-                                "dest_cloud_service_name",
-                                "destCategory",
-                                "destination_access_labels",
-                                "excessive_policies_count",
-                                "grantedby_cloud_entity_id",
-                                "grantedby_cloud_entity_name",
-                                "grantedby_cloud_entity_type",
-                                "grantedby_cloud_entity_uai",
-                                "granterCategory",
-                                "last_used",
-                                "permission_scope",
-                                "source_cloud_account_id",
-                                "source_cloud_account_is_vendor",
-                                "source_cloud_account_name",
-                                "source_cloud_region",
-                                "source_cloud_resource_id",
-                                "source_cloud_resource_name",
-                                "source_cloud_resource_type",
-                                "source_cloud_resource_uai",
-                                "source_cloud_service_name",
-                                "sourceCategory",
-                                "sourceVendorName",
-                                "unused_actions_count"
-                              ]
-                            },
-                            "SEARCH_TYPE": {
-                              "type": "string",
-                              "description": "Identifies the comparison operator you want to use for this filter. Valid values are:\n- `EQ`",
-                              "enum": [
-                                "EQ"
-                              ]
-                            },
-                            "SEARCH_VALUE": {
-                              "type": "string",
-                              "description": "Value that this filter must match."
-                            }
-                          }
-                        }
-                      }
-                    }
-                  },
-                  "sort": {
-                    "type": "array",
-                    "description": "Optional sorting criteria for the results. The sort array is passed through as-is to the underlying Cortex Platform data endpoint.",
-                    "items": {
-                      "type": "object",
-                      "required": [
-                        "field",
-                        "order"
-                      ],
-                      "properties": {
-                        "field": {
-                          "type": "string",
-                          "description": "The field to sort by.",
-                          "enum": [
-                            "account_access_transformed",
-                            "dest_cloud_account_id",
-                            "dest_cloud_account_name",
-                            "dest_cloud_resource_id",
-                            "dest_cloud_resource_name",
-                            "dest_cloud_resource_type",
-                            "dest_cloud_resource_uai",
-                            "dest_cloud_service_name",
-                            "excessive_policies_count",
-                            "grantedby_cloud_entity_id",
-                            "grantedby_cloud_entity_name",
-                            "grantedby_cloud_entity_type",
-                            "grantedby_cloud_entity_uai",
-                            "is_last_access_supported",
-                            "last_used",
-                            "permission_scope",
-                            "source_cloud_account_id",
-                            "source_cloud_account_is_vendor",
-                            "source_cloud_account_name",
-                            "source_cloud_resource_id",
-                            "source_cloud_resource_name",
-                            "source_cloud_resource_type",
-                            "source_cloud_resource_uai",
-                            "source_cloud_service_name",
-                            "unused_actions_count"
-                          ]
-                        },
-                        "order": {
-                          "type": "string",
-                          "description": "The sort order.",
-                          "enum": [
-                            "ASC",
-                            "DESC"
-                          ]
-                        }
-                      }
-                    },
-                    "minItems": 1,
-                    "maxItems": 1
-                  }
-                }
-              }
-            }
-          }
-        }
+        ]
       }
     },
     "/public_api/ciem/v1/access/destination/{destination_uai}": {
@@ -12404,144 +12091,7 @@
               "type": "string"
             }
           }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "description": "Optional request body for CIEM access GET endpoints, supporting filtering and sorting.",
-                "properties": {
-                  "filter": {
-                    "type": "object",
-                    "description": "Optional filters to apply to the results.",
-                    "properties": {
-                      "AND": {
-                        "type": "array",
-                        "description": "A list of filter conditions combined with AND logic.",
-                        "items": {
-                          "type": "object",
-                          "description": "Filter object for the CIEM access GET endpoints.",
-                          "required": [
-                            "SEARCH_FIELD",
-                            "SEARCH_TYPE",
-                            "SEARCH_VALUE"
-                          ],
-                          "properties": {
-                            "SEARCH_FIELD": {
-                              "type": "string",
-                              "description": "Identifies the field to filter.",
-                              "enum": [
-                                "access_levels",
-                                "account_access_transformed",
-                                "dest_cloud_account_id",
-                                "dest_cloud_account_name",
-                                "dest_cloud_region",
-                                "dest_cloud_resource_id",
-                                "dest_cloud_resource_name",
-                                "dest_cloud_resource_type",
-                                "dest_cloud_resource_uai",
-                                "dest_cloud_service_name",
-                                "destCategory",
-                                "destination_access_labels",
-                                "excessive_policies_count",
-                                "grantedby_cloud_entity_id",
-                                "grantedby_cloud_entity_name",
-                                "grantedby_cloud_entity_type",
-                                "grantedby_cloud_entity_uai",
-                                "granterCategory",
-                                "last_used",
-                                "permission_scope",
-                                "source_cloud_account_id",
-                                "source_cloud_account_is_vendor",
-                                "source_cloud_account_name",
-                                "source_cloud_region",
-                                "source_cloud_resource_id",
-                                "source_cloud_resource_name",
-                                "source_cloud_resource_type",
-                                "source_cloud_resource_uai",
-                                "source_cloud_service_name",
-                                "sourceCategory",
-                                "sourceVendorName",
-                                "unused_actions_count"
-                              ]
-                            },
-                            "SEARCH_TYPE": {
-                              "type": "string",
-                              "description": "Identifies the comparison operator you want to use for this filter. Valid values are:\n- `EQ`",
-                              "enum": [
-                                "EQ"
-                              ]
-                            },
-                            "SEARCH_VALUE": {
-                              "type": "string",
-                              "description": "Value that this filter must match."
-                            }
-                          }
-                        }
-                      }
-                    }
-                  },
-                  "sort": {
-                    "type": "array",
-                    "description": "Optional sorting criteria for the results. The sort array is passed through as-is to the underlying Cortex Platform data endpoint.",
-                    "items": {
-                      "type": "object",
-                      "required": [
-                        "field",
-                        "order"
-                      ],
-                      "properties": {
-                        "field": {
-                          "type": "string",
-                          "description": "The field to sort by.",
-                          "enum": [
-                            "account_access_transformed",
-                            "dest_cloud_account_id",
-                            "dest_cloud_account_name",
-                            "dest_cloud_resource_id",
-                            "dest_cloud_resource_name",
-                            "dest_cloud_resource_type",
-                            "dest_cloud_resource_uai",
-                            "dest_cloud_service_name",
-                            "excessive_policies_count",
-                            "grantedby_cloud_entity_id",
-                            "grantedby_cloud_entity_name",
-                            "grantedby_cloud_entity_type",
-                            "grantedby_cloud_entity_uai",
-                            "is_last_access_supported",
-                            "last_used",
-                            "permission_scope",
-                            "source_cloud_account_id",
-                            "source_cloud_account_is_vendor",
-                            "source_cloud_account_name",
-                            "source_cloud_resource_id",
-                            "source_cloud_resource_name",
-                            "source_cloud_resource_type",
-                            "source_cloud_resource_uai",
-                            "source_cloud_service_name",
-                            "unused_actions_count"
-                          ]
-                        },
-                        "order": {
-                          "type": "string",
-                          "description": "The sort order.",
-                          "enum": [
-                            "ASC",
-                            "DESC"
-                          ]
-                        }
-                      }
-                    },
-                    "minItems": 1,
-                    "maxItems": 1
-                  }
-                }
-              }
-            }
-          }
-        }
+        ]
       }
     },
     "/public_api/v1/cloud_onboarding/get_accounts": {
@@ -14405,20 +13955,28 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "instance_id",
-                  "cloud_provider"
+                  "request_data"
                 ],
                 "properties": {
-                  "instance_id": {
-                    "type": "string",
-                    "description": "The cloud instance ID for which you want to list the authorization details."
-                  },
-                  "cloud_provider": {
-                    "type": "string",
-                    "enum": [
-                      "GCP"
+                  "request_data": {
+                    "type": "object",
+                    "required": [
+                      "instance_id",
+                      "cloud_provider"
                     ],
-                    "description": "The cloud service provider for which you want to list the authorization details."
+                    "properties": {
+                      "instance_id": {
+                        "type": "string",
+                        "description": "The cloud instance ID for which you want to list the authorization details."
+                      },
+                      "cloud_provider": {
+                        "type": "string",
+                        "enum": [
+                          "GCP"
+                        ],
+                        "description": "The cloud service provider for which you want to list the authorization details."
+                      }
+                    }
                   }
                 }
               }
@@ -16995,80 +16553,75 @@
             "application/json": {
               "schema": {
                 "type": "object",
+                "required": [
+                  "request_data"
+                ],
                 "properties": {
-                  "": {
+                  "request_data": {
                     "type": "object",
                     "required": [
-                      "request_data"
+                      "id"
                     ],
                     "properties": {
-                      "request_data": {
-                        "type": "object",
-                        "required": [
-                          "id"
-                        ],
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "description": "Assessment profile ID"
-                          },
-                          "enabled": {
-                            "oneOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "yes",
-                                  "no"
-                                ],
-                                "description": "Whether the assessment profile is enabled. Valid values are:\n- `yes`\n- `no`"
-                              },
-                              {
-                                "type": "boolean",
-                                "description": "Whether the assessment profile is enabled"
-                              }
-                            ],
-                            "description": "Enable or disable the assessment profile"
-                          },
-                          "profile_name": {
-                            "type": "string",
-                            "description": "Name of the assessment profile"
-                          },
-                          "description": {
-                            "type": "string",
-                            "description": "Description of the assessment profile"
-                          },
-                          "report_targets": {
-                            "type": "array",
-                            "description": "List of email addresses for reports",
-                            "items": {
-                              "type": "string",
-                              "format": "email"
-                            }
-                          },
-                          "report_type": {
+                      "id": {
+                        "type": "string",
+                        "description": "Assessment profile ID"
+                      },
+                      "enabled": {
+                        "oneOf": [
+                          {
                             "type": "string",
                             "enum": [
-                              "ALL",
-                              "PDF",
-                              "CSV",
-                              "NONE"
+                              "yes",
+                              "no"
                             ],
-                            "description": "Type of reporting. Valid values include:\n- `ALL`\n- `PDF`\n- `CSV`\n- `NONE`"
+                            "description": "Whether the assessment profile is enabled. Valid values are:\n- `yes`\n- `no`"
                           },
-                          "evaluation_frequency": {
-                            "type": "string",
-                            "description": "Cron expression for assessment report evaluation frequency",
-                            "format": "cron"
-                          },
-                          "asset_group_id": {
-                            "type": "integer",
-                            "description": "Asset group ID"
-                          },
-                          "standard_id": {
-                            "type": "string",
-                            "description": "Compliance standard ID"
+                          {
+                            "type": "boolean",
+                            "description": "Whether the assessment profile is enabled"
                           }
+                        ],
+                        "description": "Enable or disable the assessment profile"
+                      },
+                      "profile_name": {
+                        "type": "string",
+                        "description": "Name of the assessment profile"
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "Description of the assessment profile"
+                      },
+                      "report_targets": {
+                        "type": "array",
+                        "description": "List of email addresses for reports",
+                        "items": {
+                          "type": "string",
+                          "format": "email"
                         }
+                      },
+                      "report_type": {
+                        "type": "string",
+                        "enum": [
+                          "ALL",
+                          "PDF",
+                          "CSV",
+                          "NONE"
+                        ],
+                        "description": "Type of reporting. Valid values include:\n- `ALL`\n- `PDF`\n- `CSV`\n- `NONE`"
+                      },
+                      "evaluation_frequency": {
+                        "type": "string",
+                        "description": "Cron expression for assessment report evaluation frequency",
+                        "format": "cron"
+                      },
+                      "asset_group_id": {
+                        "type": "integer",
+                        "description": "Asset group ID"
+                      },
+                      "standard_id": {
+                        "type": "string",
+                        "description": "Compliance standard ID"
                       }
                     }
                   }
@@ -17164,9 +16717,16 @@
             "application/json": {
               "schema": {
                 "type": "object",
+                "required": [
+                  "request_data"
+                ],
                 "properties": {
                   "request_data": {
-                    "type": "object"
+                    "type": "object",
+                    "default": {},
+                    "additionalProperties": false,
+                    "maxProperties": 0,
+                    "description": "Empty object. This endpoint rejects any field inside request_data."
                   }
                 }
               }
@@ -30958,7 +30518,8 @@
                     "type": "string",
                     "properties": {}
                   }
-                }
+                },
+                "default": {}
               }
             }
           }
@@ -31009,7 +30570,8 @@
                     "type": "string",
                     "properties": {}
                   }
-                }
+                },
+                "default": {}
               }
             }
           }
@@ -31060,7 +30622,8 @@
                     "type": "string",
                     "properties": {}
                   }
-                }
+                },
+                "default": {}
               }
             }
           }
@@ -33972,21 +33535,29 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "description": "Supply either `xsoar_source_id`, or both `start_time` and `end_time`. If `xsoar_source_id` is present the time range is ignored.",
+                "required": [
+                  "request_data"
+                ],
                 "properties": {
-                  "xsoar_source_id": {
-                    "type": "string",
-                    "description": "The unique identifier of the report"
-                  },
-                  "start_time": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "Start timestamp in epoch milliseconds. Must be supplied together with `end_time` and must not be greater than it."
-                  },
-                  "end_time": {
-                    "type": "integer",
-                    "format": "int64",
-                    "description": "End timestamp in epoch milliseconds. Must be supplied together with `start_time`."
+                  "request_data": {
+                    "type": "object",
+                    "description": "Supply either `xsoar_source_id`, or both `start_time` and `end_time`. If `xsoar_source_id` is present the time range is ignored.",
+                    "properties": {
+                      "xsoar_source_id": {
+                        "type": "string",
+                        "description": "The unique identifier of the report"
+                      },
+                      "start_time": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Start timestamp in epoch milliseconds. Must be supplied together with `end_time` and must not be greater than it."
+                      },
+                      "end_time": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "End timestamp in epoch milliseconds. Must be supplied together with `start_time`."
+                      }
+                    }
                   }
                 }
               }
@@ -34027,23 +33598,31 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "xsoar_source_ids"
+                  "request_data"
                 ],
                 "properties": {
-                  "xsoar_source_ids": {
-                    "description": "A single XSOAR source ID or an array of XSOAR source IDs. Values must be non-empty strings.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        },
-                        "minItems": 1
+                  "request_data": {
+                    "type": "object",
+                    "required": [
+                      "xsoar_source_ids"
+                    ],
+                    "properties": {
+                      "xsoar_source_ids": {
+                        "description": "A single XSOAR source ID or an array of XSOAR source IDs. Values must be non-empty strings.",
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1
+                          }
+                        ]
                       }
-                    ]
+                    }
                   }
                 }
               }
@@ -34084,23 +33663,31 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "incident_ids"
+                  "request_data"
                 ],
                 "properties": {
-                  "incident_ids": {
-                    "description": "A single incident ID or an array of incident IDs. Values must be non-empty **strings**; numeric JSON values are rejected.",
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        },
-                        "minItems": 1
+                  "request_data": {
+                    "type": "object",
+                    "required": [
+                      "incident_ids"
+                    ],
+                    "properties": {
+                      "incident_ids": {
+                        "description": "A single incident ID or an array of incident IDs. Values must be non-empty **strings**; numeric JSON values are rejected.",
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1
+                          }
+                        ]
                       }
-                    ]
+                    }
                   }
                 }
               }
@@ -34185,26 +33772,34 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "report_statuses"
+                  "request_data"
                 ],
                 "properties": {
-                  "report_statuses": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {
-                      "type": "string",
-                      "description": "Report status, expressed as its display value. Used in request payloads.",
-                      "enum": [
-                        "New",
-                        "In Progress",
-                        "On Hold",
-                        "Resolved False Positive",
-                        "Resolved True Positive",
-                        "Resolved Other",
-                        "Resolved Security Testing"
-                      ]
-                    },
-                    "description": "Non-empty array of report statuses to filter by. Must be an array; a bare string is rejected."
+                  "request_data": {
+                    "type": "object",
+                    "required": [
+                      "report_statuses"
+                    ],
+                    "properties": {
+                      "report_statuses": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "string",
+                          "description": "Report status, expressed as its display value. Used in request payloads.",
+                          "enum": [
+                            "New",
+                            "In Progress",
+                            "On Hold",
+                            "Resolved False Positive",
+                            "Resolved True Positive",
+                            "Resolved Other",
+                            "Resolved Security Testing"
+                          ]
+                        },
+                        "description": "Non-empty array of report statuses to filter by. Must be an array; a bare string is rejected."
+                      }
+                    }
                   }
                 }
               }

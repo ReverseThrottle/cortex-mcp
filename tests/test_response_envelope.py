@@ -127,9 +127,9 @@ def test_non_dict_metadata_is_left_in_place():
     assert parsed["error"] == "nope"
 
 
-def _context() -> MiddlewareContext:
+def _context(arguments: dict | None = None) -> MiddlewareContext:
     return MiddlewareContext(
-        message=CallToolRequestParams(name="get_issues", arguments={}),
+        message=CallToolRequestParams(name="get_issues", arguments={} if arguments is None else arguments),
         method="tools/call",
         type="request",
     )
@@ -179,7 +179,7 @@ async def test_middleware_wraps_json_arrays_and_plain_text():
     parsed_text = json.loads(wrapped.content[0].text)
     assert parsed_text["content"] == "not json"
     assert wrapped.structured_content["content"] == "not json"
-    assert parsed_text["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert "_metadata" not in parsed_text
 
 
 @pytest.mark.asyncio
@@ -294,3 +294,138 @@ async def test_handwritten_tool_call_returns_the_mixed_object():
     assert "formatting_instructions" not in refusal
     assert refused.structured_content == refusal
     assert "result" not in refusal
+
+
+def test_long_lists_keep_a_default_page_and_flag_truncation():
+    rows = [{"id": index} for index in range(150)]
+
+    enveloped = apply_response_envelope(rows)
+
+    assert enveloped["data"] == rows[:100]
+    assert enveloped["total"] == 150
+    assert enveloped["returned"] == 100
+    assert enveloped["truncated"] is True
+    assert "_metadata" not in enveloped
+
+
+def test_search_window_slices_reply_data_without_dropping_sibling_fields():
+    rows = [{"id": index} for index in range(21679)]
+
+    enveloped = apply_response_envelope(
+        {"reply": {"data": rows, "result_count": 21679}},
+        search_from=0,
+        search_to=1,
+    )
+
+    assert enveloped["reply"]["data"] == [{"id": 0}]
+    assert enveloped["reply"]["result_count"] == 21679
+    assert enveloped["truncated"] is True
+    assert enveloped["returned"] == 1
+    assert enveloped["total"] == 21679
+    assert rows[1]["id"] == 1
+
+
+def test_reply_list_uses_the_same_default_page():
+    datasets = [{"dataset_name": f"d{index}"} for index in range(150)]
+
+    enveloped = apply_response_envelope({"reply": datasets})
+
+    assert enveloped["reply"] == datasets[:100]
+    assert enveloped["truncated"] is True
+    assert enveloped["returned"] == 100
+    assert enveloped["total"] == 150
+
+
+def test_byte_cap_shortens_a_page():
+    rows = [{"id": index, "blob": "x" * 1000} for index in range(20)]
+
+    enveloped = apply_response_envelope(rows, max_bytes=8000)
+    encoded = json.dumps(enveloped, indent=2, ensure_ascii=False).encode("utf-8")
+
+    assert enveloped["truncated"] is True
+    assert enveloped["total"] == 20
+    assert enveloped["returned"] == len(enveloped["data"])
+    assert enveloped["returned"] < 20
+    assert len(encoded) <= 8000
+
+
+@pytest.mark.asyncio
+async def test_middleware_slices_a_controls_page_from_the_tool_arguments():
+    rows = [{"id": index} for index in range(30)]
+
+    async def call_next(context):
+        body = {"reply": {"data": rows, "result_count": len(rows)}}
+        return ToolResult(structured_content=body)
+
+    result = await ResponseEnvelopeMiddleware().on_call_tool(
+        _context({"request_data": {"search_from": 0, "search_to": 1}}),
+        call_next,
+    )
+    parsed = json.loads(result.content[0].text)
+
+    assert parsed["reply"]["data"] == [{"id": 0}]
+    assert parsed["reply"]["result_count"] == 30
+    assert parsed["truncated"] is True
+    assert parsed["returned"] == 1
+    assert parsed["total"] == 30
+    assert result.structured_content["reply"]["data"] == [{"id": 0}]
+
+
+def test_already_paged_reply_lists_are_not_indexed_again():
+    endpoints = [{"id": index} for index in range(100)]
+    cases = [{"id": index} for index in range(30)]
+    issues = [{"id": index} for index in range(10)]
+
+    endpoint_page = apply_response_envelope(
+        {"reply": {"endpoints": endpoints}},
+        search_from=100,
+        search_to=200,
+    )
+    case_page = apply_response_envelope(
+        {"reply": {"DATA": cases}},
+        search_from=30,
+        search_to=60,
+    )
+    issue_page = apply_response_envelope(
+        {"reply": {"issues": issues}},
+        search_from=10,
+        search_to=20,
+    )
+    first_page = apply_response_envelope(
+        {"reply": {"issues": issues}},
+        search_from=0,
+        search_to=10,
+    )
+
+    assert endpoint_page["reply"]["endpoints"] == endpoints
+    assert "truncated" not in endpoint_page
+    assert case_page["reply"]["DATA"] == cases
+    assert "truncated" not in case_page
+    assert issue_page["reply"]["issues"] == issues
+    assert "truncated" not in issue_page
+    assert first_page["reply"]["issues"] == issues
+    assert "truncated" not in first_page
+
+
+def test_named_reply_list_without_bounds_keeps_every_row():
+    devices = [{"id": index} for index in range(150)]
+
+    enveloped = apply_response_envelope({"reply": {"devices": devices}})
+
+    assert enveloped["reply"]["devices"] == devices
+    assert "truncated" not in enveloped
+
+
+def test_named_reply_list_longer_than_the_window_is_a_corpus():
+    endpoints = [{"id": index} for index in range(150)]
+
+    enveloped = apply_response_envelope(
+        {"reply": {"endpoints": endpoints}},
+        search_from=0,
+        search_to=1,
+    )
+
+    assert enveloped["reply"]["endpoints"] == [{"id": 0}]
+    assert enveloped["truncated"] is True
+    assert enveloped["returned"] == 1
+    assert enveloped["total"] == 150
