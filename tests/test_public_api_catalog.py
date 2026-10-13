@@ -94,6 +94,13 @@ ISSUE_26_TOOLS = (
 
 SECRET_CATALOG_TOOLS = ISSUE_26_TOOLS[1:] + ("get_brokers_images",)
 
+READ_LOOKUP_TOOLS = (
+    "post_cloud_consumption_v1_per_asset_type",
+    "post_cloud_consumption_v1_over_time",
+    "post_cloud_consumption_v1_details",
+    "post_actions_file_retrieval_details",
+)
+
 SIDE_EFFECT_CLASSES = {"read", "action", "write", "secret"}
 
 PYTHON_ONLY_PATHS = (
@@ -586,6 +593,31 @@ async def test_issue_26_tools_are_hidden_until_their_flags_are_set(feature_flags
             assert read_only
         if tool.annotations is not None and tool.annotations.read_only_hint is False:
             assert "Side effects: none" not in description
+
+
+@pytest.mark.asyncio
+async def test_consumption_and_file_retrieval_details_are_read_only(feature_flags, bundled_spec):
+    feature_flags(write=False, isolate=False, secret=False)
+    tools = await _tool_map(_annotated_catalog(bundled_spec))
+    for name in READ_LOOKUP_TOOLS:
+        tool = tools[name]
+        assert tool.annotations is not None
+        assert tool.annotations.read_only_hint is True
+        assert tool.annotations.destructive_hint is False
+        assert tool.annotations.idempotent_hint is True
+        assert (tool.description or "").startswith("Side effects: none.")
+        assert changes_tenant_state(tool) is False
+    assert "post_endpoints_file_retrieval" not in tools
+    for name in SECRET_CATALOG_TOOLS:
+        assert name not in tools
+
+    for _path, methods in bundled_spec["paths"].items():
+        for operation in methods.values():
+            if not isinstance(operation, dict):
+                continue
+            if operation.get("operationId") in READ_LOOKUP_TOOLS:
+                assert operation[SIDE_EFFECT_EXTENSION] == "read"
+                assert operation["description"].startswith("Side effects: none.")
 
 
 @pytest.mark.asyncio

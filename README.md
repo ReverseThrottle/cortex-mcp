@@ -306,7 +306,7 @@ These 10 tools call the broker appliance, not `/public_api/v1/brokers/` on the t
 
 ### Public API catalog (506 additional tools)
 
-506 tools come from the public API reference, in addition to the helpers and Broker VM tools above. The list names every tool (530) registered when write and isolate tools are enabled. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. The documented per-case update is separate from `update_case`.
+506 tools come from the public API reference, in addition to the helpers and Broker VM tools above. With write, secret, and isolate flags off, the server registers 255 tools. With only write tools enabled, it registers 523. With only the write and isolate flags enabled, it registers 525. The list below names every tool (530) registered when write, secret, and isolate tools are all enabled. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. The documented per-case update is separate from `update_case`.
 
 <details>
 <summary>All tool names</summary>

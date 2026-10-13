@@ -11638,9 +11638,9 @@
     "/platform/cloud-consumption/v1/per-asset-type/": {
       "post": {
         "operationId": "post_cloud_consumption_v1_per_asset_type",
-        "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-side-effect": "read",
         "summary": "Consumption per asset type",
-        "description": "Side effects: this operation changes Cortex tenant state (POST /platform/cloud-consumption/v1/per-asset-type/). It can create, update, or delete data. Confirm the target before calling.\n\nConsumption per asset type",
+        "description": "Side effects: none. This is a read-only Cortex API call (POST /platform/cloud-consumption/v1/per-asset-type/).\n\nConsumption per asset type",
         "tags": [
           "Consumption"
         ],
@@ -11733,9 +11733,9 @@
     "/platform/cloud-consumption/v1/over-time/": {
       "post": {
         "operationId": "post_cloud_consumption_v1_over_time",
-        "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-side-effect": "read",
         "summary": "Consumption over time (line chart)",
-        "description": "Side effects: this operation changes Cortex tenant state (POST /platform/cloud-consumption/v1/over-time/). It can create, update, or delete data. Confirm the target before calling.\n\nConsumption over time (line chart)",
+        "description": "Side effects: none. This is a read-only Cortex API call (POST /platform/cloud-consumption/v1/over-time/).\n\nConsumption over time (line chart)",
         "tags": [
           "Consumption"
         ],
@@ -11843,9 +11843,9 @@
     "/platform/cloud-consumption/v1/details/": {
       "post": {
         "operationId": "post_cloud_consumption_v1_details",
-        "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-side-effect": "read",
         "summary": "Consumption details grid",
-        "description": "Side effects: this operation changes Cortex tenant state (POST /platform/cloud-consumption/v1/details/). It can create, update, or delete data. Confirm the target before calling.\n\nConsumption details grid",
+        "description": "Side effects: none. This is a read-only Cortex API call (POST /platform/cloud-consumption/v1/details/).\n\nConsumption details grid",
         "tags": [
           "Consumption"
         ],
@@ -27547,9 +27547,9 @@
     "/public_api/v1/actions/file_retrieval_details": {
       "post": {
         "operationId": "post_actions_file_retrieval_details",
-        "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-side-effect": "read",
         "summary": "File Retrieval Details",
-        "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/actions/file_retrieval_details). It can create, update, or delete data. Confirm the target before calling.\n\nFile Retrieval Details",
+        "description": "Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/actions/file_retrieval_details).\n\nFile Retrieval Details",
         "tags": [
           "Response Action"
         ],
