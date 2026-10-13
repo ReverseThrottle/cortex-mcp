@@ -79,10 +79,10 @@ class BaseModule(ABC):
                                        the function's docstring will be used.
 
         Handwritten tools return JSON text. The published output schema is an
-        object that allows the response envelope, including ``_metadata``. The
-        function is wrapped so a JSON object string is returned as that object.
-        A generated ``-> str`` schema is not used, because it would require
-        ``result`` and reject the envelope.
+        object that allows the response envelope. The function is wrapped so a
+        JSON object string is returned as that object. A generated ``-> str``
+        schema is not used, because it would require ``result`` and reject the
+        envelope.
 
         Example:
             self._add_tool(my_function, "A tool that does something useful")

@@ -13,7 +13,6 @@ from entities.exceptions import (
     PAPIResponseError,
     PAPIServerError,
 )
-from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
 from pkg.util import create_response, read_resource
 from usecase.base_module import BaseModule
 from usecase.fetcher import get_fetcher
@@ -129,10 +128,6 @@ async def get_issues(
     try:
         fetcher = await get_fetcher(ctx)
         response_data = await fetcher.send_request("/issue/search/", data=payload)
-        response_data["_metadata"] = {
-            "formatting_instructions": LLM_FORMATTING_BASE_INSTRUCTIONS,
-        }
-
         return create_response(data=response_data)
     except (
         PAPIConnectionError,

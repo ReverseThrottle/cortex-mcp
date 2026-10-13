@@ -183,7 +183,9 @@ async def initialize_mcp_server(api_key: str, api_key_id: str, papi_url: str, au
     # FastMCP runs the first middleware added first. The rate limit returns an
     # isError tool result with the JSON envelope and does not count tools/list.
     # The envelope is outside validation and write confirmation so a refusal or
-    # a schema failure is enveloped the same way as a tool result.
+    # a schema failure is enveloped the same way as a tool result. Formatting
+    # guidance is the server instructions field, not a field on each result,
+    # unless MCP_INLINE_FORMATTING_INSTRUCTIONS is set.
     mcp.add_middleware(
         ToolCallRateLimitMiddleware(
             max_requests_per_second=config.tool_calls_per_second,

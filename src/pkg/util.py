@@ -35,48 +35,41 @@ def create_response(data: dict, is_error: bool = False) -> str:
 
     Returns:
         str: A JSON string containing the data with an added 'success' field.
-             ``_metadata.formatting_instructions`` is added when ``_metadata``
-             is missing, and when ``_metadata`` is a dict that does not already
-             include that hint. A non-dict ``_metadata`` is left unchanged.
-             The JSON is formatted with 2-space indentation and non-ASCII
-             characters are preserved.
+             Formatting instructions are not added. Set
+             ``MCP_INLINE_FORMATTING_INSTRUCTIONS=true`` to include
+             ``_metadata.formatting_instructions``. Existing ``_metadata`` is
+             left unchanged, including a non-dict value. The JSON is formatted
+             with 2-space indentation and non-ASCII characters are preserved.
 
     Example:
-        A successful call keeps the caller's fields, adds ``success``, and adds
-        ``_metadata`` when the tool did not already set formatting instructions::
+        A successful call keeps the caller's fields and adds ``success``::
 
             {
               "message": "Operation completed",
               "count": 5,
-              "success": "true",
-              "_metadata": {
-                "formatting_instructions": "<LLM_FORMATTING_BASE_INSTRUCTIONS>"
-              }
+              "success": "true"
             }
 
-        An error response uses ``success`` ``"false"`` and the same metadata::
+        An error response uses ``success`` ``"false"``::
 
             {
               "error": "Invalid input",
-              "success": "false",
-              "_metadata": {
-                "formatting_instructions": "<LLM_FORMATTING_BASE_INSTRUCTIONS>"
-              }
+              "success": "false"
             }
 
         >>> parsed = json.loads(create_response({"message": "Operation completed", "count": 5}))
         >>> parsed["success"]
         'true'
         >>> sorted(parsed)
-        ['_metadata', 'count', 'message', 'success']
-        >>> sorted(parsed["_metadata"])
-        ['formatting_instructions']
+        ['count', 'message', 'success']
+        >>> "_metadata" in parsed
+        False
 
         >>> error = json.loads(create_response({"error": "Invalid input"}, is_error=True))
         >>> error["success"]
         'false'
         >>> sorted(error)
-        ['_metadata', 'error', 'success']
+        ['error', 'success']
     """
     success = "true" if not is_error else "false"
     data["success"] = success

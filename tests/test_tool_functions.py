@@ -92,14 +92,15 @@ async def test_get_cases_coerces_ids_and_returns_papi_errors(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_issues_sends_the_search_path_and_metadata(monkeypatch):
+async def test_get_issues_sends_the_search_path(monkeypatch):
     fetcher = _install(monkeypatch, issues_module, RecordingFetcher({"reply": [{"id": 3}]}))
     payload = _loaded(
         await get_issues(None, [{"field": "id", "operator": "in", "value": ["3"]}], search_from=0, search_to=10)
     )
     assert payload["success"] == "true"
     assert payload["reply"] == [{"id": 3}]
-    assert "formatting_instructions" in payload["_metadata"]
+    assert "_metadata" not in payload
+    assert "formatting_instructions" not in payload
     path, kwargs = fetcher.calls[0]
     assert path == "/issue/search/"
     assert kwargs["data"]["request_data"]["filters"][0]["value"] == [3]

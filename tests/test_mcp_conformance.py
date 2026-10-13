@@ -104,7 +104,8 @@ async def test_json_schema_rejects_a_bad_argument_and_keeps_the_envelope():
     body = json.loads(refused.content[0].text)
     assert body["success"] == "false"
     assert "Invalid arguments" in body["error"]
-    assert body["_metadata"]["formatting_instructions"]
+    assert "_metadata" not in body
+    assert "formatting_instructions" not in body
     assert json.loads(accepted.content[0].text)["reply"] == 3
 
 
@@ -129,7 +130,8 @@ async def test_tool_call_rate_limit_does_not_count_tools_list():
     body = json.loads(limited.content[0].text)
     assert body["success"] == "false"
     assert "rate limit" in body["error"].lower()
-    assert body["_metadata"]["formatting_instructions"]
+    assert "_metadata" not in body
+    assert "formatting_instructions" not in body
     assert limited.structured_content == body
 
 
