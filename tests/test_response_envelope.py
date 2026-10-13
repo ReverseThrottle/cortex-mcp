@@ -161,7 +161,7 @@ async def test_middleware_envelopes_object_results_without_rewriting_values():
 
 
 @pytest.mark.asyncio
-async def test_middleware_wraps_json_arrays_and_leaves_plain_text():
+async def test_middleware_wraps_json_arrays_and_plain_text():
     async def call_next(context):
         return ToolResult(content=[{"id": 3}])
 
@@ -175,9 +175,11 @@ async def test_middleware_wraps_json_arrays_and_leaves_plain_text():
     async def plain(context):
         return ToolResult(content="not json")
 
-    untouched = await ResponseEnvelopeMiddleware().on_call_tool(_context(), plain)
-    assert untouched.content[0].text == "not json"
-    assert untouched.structured_content is None
+    wrapped = await ResponseEnvelopeMiddleware().on_call_tool(_context(), plain)
+    parsed_text = json.loads(wrapped.content[0].text)
+    assert parsed_text["content"] == "not json"
+    assert wrapped.structured_content["content"] == "not json"
+    assert parsed_text["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
 
 
 @pytest.mark.asyncio

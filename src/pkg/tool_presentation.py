@@ -15,6 +15,23 @@ LOOSE_OBJECT_OUTPUT_SCHEMA: dict[str, Any] = {
     "additionalProperties": True,
 }
 
+# The tenant sorts get_instances by MODIFIED_AT when sort is omitted. That field
+# is not a valid mapping (HTTP 500). FastMCP does not send schema defaults, so
+# the tool call injects this documented field instead.
+GET_CLOUD_INSTANCES_OPERATION = "post_cloud_onboarding_get_instances"
+DEFAULT_CLOUD_INSTANCE_SORT: list[dict[str, str]] = [{"FIELD": "STATUS", "ORDER": "ASC"}]
+
+_JSON_MEDIA_SUFFIXES = ("+json",)
+_JSON_MEDIA_TYPES = frozenset(
+    {
+        "application/json",
+        "application/vnd.api+json",
+        "application/hal+json",
+        "application/ld+json",
+        "text/json",
+    }
+)
+
 
 def annotations_for_description(description: str | None) -> ToolAnnotations:
     """Read tools are not destructive. Every tool talks to a Cortex tenant or Broker VM."""
@@ -132,7 +149,76 @@ def _is_coroutine(fn: Callable) -> bool:
     return inspect.iscoroutinefunction(fn)
 
 
-def annotate_openapi_component(route, component) -> None:
+def _json_media_type(media_type: str) -> bool:
+    base = media_type.split(";", 1)[0].strip().lower()
+    return base in _JSON_MEDIA_TYPES or base.endswith(_JSON_MEDIA_SUFFIXES)
+
+
+def _returns_unstructured_body(route: Any) -> bool:
+    """Download and non-JSON operations do not produce an object body.
+
+    ``publishable_output_schema`` would still advertise an object. An empty or
+    plain-text body then has no ``structuredContent``, and the MCP client
+    rejects the result. Those tools publish no output schema.
+    """
+    operation_id = getattr(route, "operation_id", None) or ""
+    if "_download" in operation_id:
+        return True
+    responses = getattr(route, "responses", None) or {}
+    saw_content = False
+    for code, response in responses.items():
+        if not (str(code).startswith("2") or str(code) in {"default", "2xx"}):
+            continue
+        content = getattr(response, "content_schema", None) or {}
+        if not content:
+            continue
+        saw_content = True
+        if any(_json_media_type(media_type) for media_type in content):
+            return False
+    return saw_content
+
+
+def with_default_cloud_instance_sort(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Add the documented STATUS sort when the caller did not send one.
+
+    An empty ``request_data`` is the default tool call. The tenant then sorts
+    by MODIFIED_AT and returns HTTP 500. A caller-supplied sort is kept.
+    """
+    request_data = arguments.get("request_data")
+    if request_data is None:
+        request_data = {}
+    if not isinstance(request_data, dict):
+        return arguments
+    filter_data = request_data.get("filter_data")
+    if filter_data is None:
+        filter_data = {}
+    if not isinstance(filter_data, dict):
+        return arguments
+    sort = filter_data.get("sort")
+    if isinstance(sort, list) and sort:
+        return arguments
+    updated_filter = dict(filter_data)
+    updated_filter["sort"] = [dict(item) for item in DEFAULT_CLOUD_INSTANCE_SORT]
+    updated_request = dict(request_data)
+    updated_request["filter_data"] = updated_filter
+    updated = dict(arguments)
+    updated["request_data"] = updated_request
+    return updated
+
+
+def _install_default_cloud_instance_sort(component: Any) -> None:
+    original_run = component.run
+
+    async def run_with_default_sort(arguments: dict[str, Any]) -> Any:
+        return await original_run(with_default_cloud_instance_sort(arguments))
+
+    # OpenAPITool is a Pydantic model. Assigning run through the model rejects
+    # the method because it is not a field. The instance attribute still
+    # shadows OpenAPITool.run when the server calls it.
+    object.__setattr__(component, "run", run_with_default_sort)
+
+
+def annotate_openapi_component(route: Any, component: Any) -> None:
     """Apply titles, side-effect annotations, and a matching output schema."""
     if not isinstance(component, Tool):
         return
@@ -141,4 +227,9 @@ def annotate_openapi_component(route, component) -> None:
     title = display_title(summary=getattr(route, "summary", None), description=description)
     if title:
         component.title = title
-    component.output_schema = publishable_output_schema(component.output_schema)
+    if _returns_unstructured_body(route):
+        component.output_schema = None
+    else:
+        component.output_schema = publishable_output_schema(component.output_schema)
+    if getattr(route, "operation_id", None) == GET_CLOUD_INSTANCES_OPERATION:
+        _install_default_cloud_instance_sort(component)

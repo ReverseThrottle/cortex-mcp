@@ -13472,7 +13472,7 @@
       "post": {
         "operationId": "post_cloud_onboarding_get_instances",
         "summary": "Get all or filtered cloud instances",
-        "description": "Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/cloud_onboarding/get_instances).\n\nGet all or filtered cloud instances",
+        "description": "Side effects: none. This is a read-only Cortex API call (POST /public_api/v1/cloud_onboarding/get_instances).\n\nGet all or filtered cloud instances. When sort is omitted the tenant applies an implicit MODIFIED_AT sort. MODIFIED_AT is not a valid field mapping and the call returns HTTP 500 (Cannot find mapping for MODIFIED_AT). Send an explicit sort using a FIELD value from the documented list. The server sends FIELD STATUS and ORDER ASC when sort is empty, because schema defaults are not transmitted on the tool call.",
         "tags": [
           "Cloud instance management"
         ],
@@ -13509,13 +13509,30 @@
                         "properties": {
                           "sort": {
                             "type": "array",
-                            "description": "Sorting criteria for the results",
+                            "description": "Sorting criteria for the results. An omitted sort uses the tenant's implicit MODIFIED_AT field, which is not a valid mapping. The server default is STATUS ascending.",
+                            "default": [
+                              {
+                                "FIELD": "STATUS",
+                                "ORDER": "ASC"
+                              }
+                            ],
                             "items": {
                               "type": "object",
                               "properties": {
                                 "FIELD": {
                                   "type": "string",
-                                  "description": "The field to sort by."
+                                  "enum": [
+                                    "STATUS",
+                                    "PROVIDER",
+                                    "INSTANCE_NAME",
+                                    "SCOPE",
+                                    "SCAN_MODE",
+                                    "CREATION_TIME",
+                                    "OUTPOST_ID",
+                                    "AUTHENTICATION_METHOD",
+                                    "ID"
+                                  ],
+                                  "description": "The field to sort by. MODIFIED_AT is not a valid mapping."
                                 },
                                 "ORDER": {
                                   "type": "string",
@@ -19213,13 +19230,48 @@
       "get": {
         "operationId": "get_integration_v1_external_application",
         "summary": "List all applications",
-        "description": "Side effects: none. This is a read-only Cortex API call (GET /platform/integration/v1/external-application).\n\nList all applications",
+        "description": "Side effects: none. This is a read-only Cortex API call (GET /platform/integration/v1/external-application).\n\nList all applications. application_type uses ExternalApplicationType, which includes slack. The documented ExternalApplication.application_id is an int64. Some tenants return a dashed string in that field instead. The by-id route parses its path id with int() and rejects that string. The public API does not document a field that maps the dashed string to the integer.",
         "tags": [
           "External Applications"
         ],
         "responses": {
           "200": {
-            "description": "Successful response"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "External applications returned by the list operation. application_type is ExternalApplicationType.",
+                  "additionalProperties": true,
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "properties": {
+                          "application_id": {
+                            "description": "Documented as int64. Some tenants return a dashed string here. The by-id route accepts only the integer form.",
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "format": "int64"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "application_type": {
+                            "$ref": "#/components/schemas/ExternalApplicationType"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad request"
@@ -19289,15 +19341,7 @@
                             "description": "Description of the application."
                           },
                           "application_type": {
-                            "type": "string",
-                            "enum": [
-                              "syslog",
-                              "webhook",
-                              "splunk",
-                              "aws_sqs",
-                              "aws_s3"
-                            ],
-                            "description": "The type of application instance."
+                            "$ref": "#/components/schemas/ExternalApplicationType"
                           },
                           "connection_config": {
                             "type": "object",
@@ -19567,15 +19611,7 @@
                         "description": "Description of the application."
                       },
                       "application_type": {
-                        "type": "string",
-                        "enum": [
-                          "syslog",
-                          "webhook",
-                          "splunk",
-                          "aws_sqs",
-                          "aws_s3"
-                        ],
-                        "description": "The type of application instance."
+                        "$ref": "#/components/schemas/ExternalApplicationType"
                       },
                       "connection_config": {
                         "type": "object",
@@ -19763,7 +19799,7 @@
       "get": {
         "operationId": "get_integration_v1_external_application_by_applic_9b2917",
         "summary": "Get External Application details by ID",
-        "description": "Side effects: none. This is a read-only Cortex API call (GET /platform/integration/v1/external-application/{application_type}/id/{application_id}).\n\nGet External Application details by ID",
+        "description": "Side effects: none. This is a read-only Cortex API call (GET /platform/integration/v1/external-application/{application_type}/id/{application_id}).\n\nGet External Application details by ID. Pass application_type from the list result, including slack. application_id is the integer ExternalApplication.application_id (int64). A dashed string from a list response is not accepted: this route parses the path id with int(), and the public API does not document a mapping from that string to the integer.",
         "tags": [
           "External Applications"
         ],
@@ -19789,9 +19825,10 @@
             "name": "application_id",
             "in": "path",
             "required": true,
-            "description": "The unique identifier of the application.",
+            "description": "Integer id (int64) of the application. This route parses the path segment with int(). The documented list and detail field ExternalApplication.application_id is that integer. Some list responses return a dashed string in application_id; this route rejects that string (invalid literal for int()). The public API does not document another field that maps the dashed string to this integer.",
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
             }
           },
           {
@@ -19800,14 +19837,7 @@
             "required": true,
             "description": "The application type of the specified application",
             "schema": {
-              "type": "string",
-              "enum": [
-                "syslog",
-                "webhook",
-                "splunk",
-                "aws_sqs",
-                "aws_s3"
-              ]
+              "$ref": "#/components/schemas/ExternalApplicationType"
             }
           }
         ]
@@ -19841,9 +19871,10 @@
             "name": "application_id",
             "in": "path",
             "required": true,
-            "description": "The unique identifier of the application.",
+            "description": "Integer id (int64) of the application. This route parses the path segment with int(). The documented list and detail field ExternalApplication.application_id is that integer. Some list responses return a dashed string in application_id; this route rejects that string (invalid literal for int()). The public API does not document another field that maps the dashed string to this integer.",
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
             }
           },
           {
@@ -19852,14 +19883,7 @@
             "required": true,
             "description": "The application type of the specified application",
             "schema": {
-              "type": "string",
-              "enum": [
-                "syslog",
-                "webhook",
-                "splunk",
-                "aws_sqs",
-                "aws_s3"
-              ]
+              "$ref": "#/components/schemas/ExternalApplicationType"
             }
           }
         ]
@@ -79856,6 +79880,19 @@
     }
   },
   "components": {
-    "schemas": {}
+    "schemas": {
+      "ExternalApplicationType": {
+        "type": "string",
+        "description": "The type of application instance. The list operation returns slack for integrations created in the Cortex UI, in addition to syslog, webhook, splunk, aws_sqs, and aws_s3. The published create connection schemas do not include slack.",
+        "enum": [
+          "syslog",
+          "webhook",
+          "splunk",
+          "aws_sqs",
+          "aws_s3",
+          "slack"
+        ]
+      }
+    }
   }
 }
