@@ -94,6 +94,11 @@ class BaseModule(ABC):
             self._add_tool(my_function, "A tool that does something useful")
         """
         kind = side_effect if side_effect is not None else handwritten_side_effect(fn.__name__)
+        if kind is None:
+            raise ValueError(
+                f"Handwritten tool {fn.__name__!r} has no SideEffect. "
+                "Pass side_effect= or add it to HANDWRITTEN_SIDE_EFFECTS."
+            )
         description_text = align_description(description if description is not None else (fn.__doc__ or ""), kind)
         title = display_title(description=description_text)
         tool = Tool.from_function(

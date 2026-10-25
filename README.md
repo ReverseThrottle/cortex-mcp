@@ -940,18 +940,8 @@ For simple CRUD-style endpoints, drop a YAML file in `src/usecase/custom_compone
 # Install all dev dependencies
 poetry install
 
-# Run tests
-poetry run pytest
-
-# Format
-poetry run black .
-poetry run isort .
-
-# Lint
-poetry run ruff check .
-
-# Type-check
-poetry run mypy src/
+# Lint, format-check, type-check, and test (mirrors CI)
+./scripts/verify
 ```
 
 ### Debugging with MCP Inspector

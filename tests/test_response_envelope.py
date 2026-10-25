@@ -233,7 +233,7 @@ class _RecordingModule(BaseModule):
         self._fn = fn
 
     def register_tools(self):
-        self._add_tool(self._fn)
+        self._add_tool(self._fn, side_effect="read")
 
     def register_resources(self):
         return None
