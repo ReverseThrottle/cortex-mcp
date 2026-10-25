@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Mirror CI checks (ruff, black, isort, mypy, pytest). Exit non-zero on first failure.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+poetry run ruff check .
+poetry run black --check .
+poetry run isort --check .
+poetry run mypy src/
+poetry run pytest
