@@ -19,15 +19,17 @@ from usecase.base_module import BaseModule
 SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 
 
-def _handwritten_tool_names() -> set[str]:
+def _handwritten_tool_names(src_root: Path | None = None) -> set[str]:
     """AST-discover production `_add_tool` targets plus `_BROKER_TOOLS` entries."""
+    root = src_root if src_root is not None else SRC_ROOT
     names: set[str] = set()
-    for path in SRC_ROOT.rglob("*.py"):
+    for path in root.rglob("*.py"):
+        rel = path.relative_to(root)
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "_add_tool":
                 if not node.args:
-                    continue
+                    raise AssertionError(f"{rel}:{node.lineno}: unsupported _add_tool first arg missing")
                 arg = node.args[0]
                 if isinstance(arg, ast.Name):
                     # Skip the broker loop variable; those names come from _BROKER_TOOLS.
@@ -36,6 +38,8 @@ def _handwritten_tool_names() -> set[str]:
                     names.add(arg.id)
                 elif isinstance(arg, ast.Attribute):
                     names.add(arg.attr)
+                else:
+                    raise AssertionError(f"{rel}:{node.lineno}: unsupported _add_tool first arg {type(arg).__name__}")
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if (
@@ -56,6 +60,21 @@ def test_handwritten_side_effects_cover_every_registered_tool():
         f"missing from HANDWRITTEN_SIDE_EFFECTS: {sorted(registered - declared)}; "
         f"extra in HANDWRITTEN_SIDE_EFFECTS: {sorted(declared - registered)}"
     )
+
+
+@pytest.mark.parametrize(
+    ("snippet", "kind"),
+    [
+        ("self._add_tool(some_call())", "Call"),
+        ("self._add_tool('x')", "Constant"),
+        ("self._add_tool()", "missing"),
+    ],
+)
+def test_handwritten_tool_names_fails_loud_on_unsupported_first_arg(tmp_path: Path, snippet: str, kind: str):
+    mod = tmp_path / "mod.py"
+    mod.write_text(f"# line1\n{snippet}\n", encoding="utf-8")
+    with pytest.raises(AssertionError, match=rf"mod\.py:2: unsupported _add_tool first arg {kind}"):
+        _handwritten_tool_names(tmp_path)
 
 
 def test_parse_side_effect_accepts_known_classes_only():
