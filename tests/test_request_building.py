@@ -215,3 +215,38 @@ async def test_empty_write_requests_gain_a_json_body(monkeypatch):
     assert seen[3][1] == b""
     assert seen[4] == ("PUT", b"{}", "application/json")
     assert seen[5] == ("PUT", b"{}", "application/json")
+
+
+@pytest.mark.asyncio
+async def test_request_and_download_defaults_do_not_stay_on_the_client():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    client = _client(handler)
+    initial = httpx.Headers(client.headers)
+
+    await client.stream("POST", "/public_api/v1/mcp/download/", data="{}")
+    assert client.headers == initial
+    await client.request(
+        "POST", "/public_api/v1/case/search", json={"request_data": {}}, headers={"Accept": "application/x-test"}
+    )
+    assert client.headers == initial
+    await client.request("POST", "/public_api/v1/scripts/insert", files={"file": ("a.zip", b"PK", "application/zip")})
+    assert client.headers == initial
+    await client.send(client.build_request("GET", "/public_api/v1/healthcheck"))
+    await client.aclose()
+
+    download, search, upload, catalog = seen
+    assert download.headers["content-type"] == "application/zip"
+    assert download.headers["x-is-mcp"] == "true"
+    assert search.headers["content-type"] == "application/json"
+    assert search.headers["x-is-mcp"] == "true"
+    assert search.headers["accept"] == "application/x-test"
+    assert upload.headers["content-type"].startswith("multipart/form-data")
+    assert upload.headers["x-is-mcp"] == "true"
+    assert "content-type" not in catalog.headers
+    assert catalog.headers["accept"] == initial["accept"]
+    assert catalog.headers["x-is-mcp"] == "true"

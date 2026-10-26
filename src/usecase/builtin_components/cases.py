@@ -85,6 +85,7 @@ async def get_cases(
         }
     }
     if filters:
+        filters = [dict(f) for f in filters]  # Copy so the caller's filter dicts are not changed
         for f in filters:
             if f.get("field") == "id":
                 f["value"] = [int(v) for v in f["value"]]  # Ensure id values are integers

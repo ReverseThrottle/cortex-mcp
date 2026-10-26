@@ -5,16 +5,17 @@ import json
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 import zipfile
+from pathlib import Path
 from typing import Optional
 
-import requests
-
 from config.config import get_config, reload_config
+from entities.exceptions import PAPIClientError
 from main import async_main
 from pkg.setup_logging import setup_logging
 from pkg.util import MAIN_DIR, REMOTE_DIR
@@ -185,6 +186,7 @@ async def start_server(args: argparse.Namespace):
         logger.error("\n[Python] Server interrupted by user.")
     except Exception as error:
         logger.error(f"\n[Shell] Failed to execute the MCP server as expected: {error}")
+        sys.exit(1)
 
 
 # --- Update Folder Helper Functions ---
@@ -198,7 +200,7 @@ async def download_update_package() -> str:
         Path to the downloaded temporary zip file
 
     Raises:
-        requests.exceptions.RequestException: If the download fails
+        PAPIClientError: If the download fails
     """
     logger.info("[Python] Requesting content update from Cortex API...")
 
@@ -232,13 +234,18 @@ def safe_extract(zip_ref: zipfile.ZipFile, extract_to: str):
     Extracts the contents of the zip file from the Cortex MCP server ZIP file.
     Includes prevention against a malicious file zip slip.
 
+    Every member must resolve inside ``extract_to``. Symlink entries are rejected.
+
     Args:
         zip_ref: Cortex MCP server ZIP file.
         extract_to: Path to the directory to extract the zip file.
     """
+    destination = Path(extract_to).resolve()
     for member in zip_ref.infolist():
-        if os.path.isabs(member.filename) or ".." in member.filename:
+        if not (destination / member.filename).resolve().is_relative_to(destination):
             raise ValueError(f"Unsafe path: {member.filename}")
+        if stat.S_ISLNK(member.external_attr >> 16):
+            raise ValueError(f"Unsafe symlink: {member.filename}")
     zip_ref.extractall(extract_to)
 
 
@@ -416,11 +423,11 @@ async def update_tools(args: argparse.Namespace):
 
         logger.info("\n[Python] remote_tools update process complete.")
 
-    except requests.exceptions.RequestException as e:
+    except PAPIClientError as e:
+        # The message already carries the response body.
         logger.error(f"[Python] Error: Failed to download content from API: {e}")
-        if hasattr(e, "response") and e.response is not None:
-            logger.error(f"[Python] HTTP Status Code: {e.response.status_code}")
-            logger.error(f"[Python] Response: {e.response.text}")
+        if e.status_code is not None:
+            logger.error(f"[Python] HTTP Status Code: {e.status_code}")
     except zipfile.BadZipFile:
         logger.error("[Python] Error: Downloaded file is not a valid zip archive.")
     except FileNotFoundError as e:
