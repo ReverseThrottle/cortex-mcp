@@ -74,6 +74,9 @@ async def update_case(
     Returns:
         JSON response indicating success or failure of the update.
     """
+    if not case_ids:
+        return create_response(data={"error": "case_ids must contain at least one case ID."}, is_error=True)
+
     update_data: dict = {}
 
     if comment:

@@ -125,7 +125,11 @@ def reset_broker_client() -> None:
 
 
 def get_broker_client() -> BrokerClient:
-    """Return the process-wide broker client built from server settings."""
+    """Return the process-wide broker client built from server settings.
+
+    The cache key is the configured URL and factory password, not the client's
+    current password, so a client that took a reset password is still returned.
+    """
     global _client, _client_key
     config = get_config()
     url = broker_base_url(config.broker_url)
@@ -141,8 +145,5 @@ def get_broker_client() -> BrokerClient:
 
 def use_new_admin_password(client: BrokerClient, new_password: str) -> None:
     """Keep the new admin password on this client. Later token exchanges in this process use it."""
-    global _client_key
     client.password = new_password
     client.clear_token()
-    if _client is client:
-        _client_key = (client.base_url, new_password)

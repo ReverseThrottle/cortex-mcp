@@ -400,15 +400,17 @@ class PAPIClient(httpx.AsyncClient):
                 return response
             return _coerce_textual_response(response)
 
+    # Both return a copy. Updating self.headers would leave the last call's
+    # Content-Type on the client for every later request.
     def _get_default_headers(self) -> httpx.Headers:
         """Get default headers with authentication."""
-        headers = self.headers
+        headers = httpx.Headers(self.headers)
         headers.update({"Content-Type": "application/json", "X-IS-MCP": "true"})
         return headers
 
     def _get_download_default_headers(self) -> httpx.Headers:
         """Get default headers with authentication."""
-        headers = self.headers
+        headers = httpx.Headers(self.headers)
         headers.update(
             {
                 "Content-Type": "application/zip",
