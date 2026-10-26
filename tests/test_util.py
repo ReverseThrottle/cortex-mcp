@@ -13,6 +13,8 @@ from pkg.util import get_papi_url, path_segment_error, read_file
         ("https://api-tenant.example", "https://api-tenant.example"),
         ("https://api-tenant.example/", "https://api-tenant.example"),
         ("tenant.example:8443", "https://api-tenant.example:8443"),
+        ("https://10.0.0.1:8443", "https://10.0.0.1:8443"),
+        ("https://[::1]:8443", "https://[::1]:8443"),
         ("http://tenant.example:8443//", "https://api-tenant.example:8443"),
         ("https://my-api-tenant.example", "https://api-my-api-tenant.example"),
         ("https://tenant.example/api-gateway/", "https://api-tenant.example/api-gateway"),

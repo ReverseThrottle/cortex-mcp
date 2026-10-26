@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 import json
 import secrets
 import string
@@ -187,14 +188,22 @@ def get_papi_auth_headers(
             assert_never(key_type)
 
 
+def _is_ip_address(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return True
+
+
 def get_papi_url(papi_url_value: str) -> str:
     """
     Construct and return the public API URL from environment variables.
 
     Checks for custom URL override first, then falls back to the standard URL.
     Ensures the URL uses HTTPS protocol and includes the 'api-' subdomain prefix.
-    The prefix is checked on the hostname only. A port is kept and trailing
-    slashes are removed.
+    The prefix is checked on the hostname only and is not added to an IP address.
+    A port is kept and trailing slashes are removed.
 
     Args:
         papi_url_value (str): The URL value to construct the URL from.
@@ -217,8 +226,10 @@ def get_papi_url(papi_url_value: str) -> str:
     hostname = parts.hostname
     if not hostname:
         raise ValueError(f"Public API URL has no hostname: {papi_url_value}")
-    if not hostname.startswith("api-"):
+    if not _is_ip_address(hostname) and not hostname.startswith("api-"):
         hostname = f"api-{hostname}"
+    if ":" in hostname:  # IPv6 literal
+        hostname = f"[{hostname}]"
     netloc = hostname if parts.port is None else f"{hostname}:{parts.port}"
 
     return urlunsplit(("https", netloc, parts.path.rstrip("/"), parts.query, parts.fragment))

@@ -244,6 +244,7 @@ def safe_extract(zip_ref: zipfile.ZipFile, extract_to: str):
     for member in zip_ref.infolist():
         if not (destination / member.filename).resolve().is_relative_to(destination):
             raise ValueError(f"Unsafe path: {member.filename}")
+        # The high 16 bits of external_attr hold the unix mode. A symlink can redirect later writes.
         if stat.S_ISLNK(member.external_attr >> 16):
             raise ValueError(f"Unsafe symlink: {member.filename}")
     zip_ref.extractall(extract_to)
