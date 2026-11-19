@@ -7,6 +7,7 @@ import pytest
 from fastmcp import FastMCP
 
 from config.config import reload_config
+from pkg import broker_client
 from pkg.broker_client import BrokerClient, broker_base_url, reset_broker_client
 from pkg.tool_classification import handwritten_side_effect
 from pkg.write_confirmation import changes_tenant_state
@@ -157,6 +158,35 @@ async def test_token_tool_hides_the_broker_bearer_and_reset_keeps_the_new_passwo
 
     await client.login()
     assert json.loads(seen[-1].content) == {"password": "replacement-secret"}
+
+
+@pytest.mark.asyncio
+async def test_cached_broker_client_keeps_the_reset_password(server_settings, monkeypatch):
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/public_api/v1/auth/token":
+            return httpx.Response(200, json={"reply": {"api_key": _TOKEN}})
+        return httpx.Response(200, json={"reply": None})
+
+    class MockedBrokerClient(BrokerClient):
+        def __init__(self, base_url: str, password: str):
+            super().__init__(base_url, password, transport=httpx.MockTransport(handler))
+
+    # Only the transport is replaced. get_broker_client and its cache are the real ones.
+    monkeypatch.setattr(broker_client, "BrokerClient", MockedBrokerClient)
+    server_settings(CORTEX_MCP_BROKER_URL="broker.example", CORTEX_MCP_BROKER_FACTORY_PASSWORD=_FACTORY)
+
+    reset = json.loads(await post_auth_reset_initial_password(None, "replacement-secret"))
+    assert reset["password_updated_for_this_process"] is True
+    assert json.loads(seen[-1].content)["current_password"] == _FACTORY
+
+    issued = json.loads(await post_auth_token(None))
+    assert issued["reply"]["token_issued"] is True
+    assert seen[-1].url.path == "/public_api/v1/auth/token"
+    assert json.loads(seen[-1].content) == {"password": "replacement-secret"}
+    assert broker_client.get_broker_client().password == "replacement-secret"
 
 
 @pytest.mark.asyncio

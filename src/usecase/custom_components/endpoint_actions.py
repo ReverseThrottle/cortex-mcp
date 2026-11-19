@@ -28,6 +28,8 @@ _PAPI_ERRORS = (
     PAPIClientError,
 )
 
+_EMPTY_ENDPOINT_IDS = "endpoint_ids must contain at least one endpoint ID."
+
 
 async def isolate_endpoint(
     ctx: Context,
@@ -61,6 +63,8 @@ async def isolate_endpoint(
     Returns:
         JSON response indicating success or failure of the isolation request.
     """
+    if not endpoint_ids:
+        return create_response(data={"error": _EMPTY_ENDPOINT_IDS}, is_error=True)
     payload: dict = {
         "request_data": {
             "filters": [
@@ -119,6 +123,8 @@ async def unisolate_endpoint(
     Returns:
         JSON response indicating success or failure of the unisolation request.
     """
+    if not endpoint_ids:
+        return create_response(data={"error": _EMPTY_ENDPOINT_IDS}, is_error=True)
     payload: dict = {
         "request_data": {
             "filters": [

@@ -12,6 +12,7 @@ with XSIAM (Extended Security Intelligence and Automation Management) services.
 import asyncio
 import logging
 import signal
+import sys
 from functools import partial
 
 from fastmcp import FastMCP
@@ -253,11 +254,13 @@ def main():
         - Starts the asyncio event loop
         - Logs server startup and shutdown events
         - Handles exceptions and ensures graceful shutdown
+        - Exits with status 1 when the server fails
     """
     try:
         asyncio.run(async_main(get_config().mcp_transport))
     except Exception as e:
         logger.exception(f"Main loop stopped: {e}")
+        sys.exit(1)
     finally:
         logger.info("Cortex MCP Server has shut down.")
 

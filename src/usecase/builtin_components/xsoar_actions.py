@@ -15,7 +15,7 @@ from entities.exceptions import (
     PAPIResponseError,
     PAPIServerError,
 )
-from pkg.util import create_response
+from pkg.util import create_response, path_segment_error
 from usecase.base_module import BaseModule
 from usecase.fetcher import get_fetcher
 
@@ -67,6 +67,11 @@ def _file_bytes(content: str, encoding: str, label: str) -> tuple[bytes | None, 
     if len(payload) > _MAX_CONTENT_CHARS:
         return None, f"{label} exceeds {_MAX_CONTENT_CHARS} bytes."
     return payload, None
+
+
+def _incident_id_error(incident_id: str) -> str | None:
+    """The id is one URL path segment. ``1/../x`` or ``1?x`` would leave the upload endpoint."""
+    return _text_error(incident_id, "Incident id") or path_segment_error(incident_id, "Incident id")
 
 
 def _form_file(value: str | None) -> tuple[None, str] | None:
@@ -136,7 +141,7 @@ async def post_entry_upload_by_incident_id(
     Confirm the incident and content before calling.
     """
     payload, error = _file_bytes(file_content, content_encoding, "File content")
-    incident_error = _text_error(incident_id, "Incident id")
+    incident_error = _incident_id_error(incident_id)
     if error or incident_error or payload is None:
         return create_response(data={"error": error or incident_error}, is_error=True)
     files: _Multipart = {
@@ -194,7 +199,7 @@ async def post_incident_upload_by_incident_id(
     Confirm the incident and file before calling.
     """
     payload, error = _file_bytes(file_content, content_encoding, "File content")
-    incident_error = _text_error(incident_id, "Incident id")
+    incident_error = _incident_id_error(incident_id)
     if error or incident_error or payload is None:
         return create_response(data={"error": error or incident_error}, is_error=True)
     files: _Multipart = {"file": (file_name or "upload.bin", payload, "application/octet-stream")}

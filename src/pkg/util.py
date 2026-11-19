@@ -1,10 +1,12 @@
 import hashlib
+import ipaddress
 import json
 import secrets
 import string
 import time
 from pathlib import Path
 from typing import Literal, assert_never
+from urllib.parse import urlsplit, urlunsplit
 
 from pkg.openapi.openapi import bundle_specs
 from pkg.response_envelope import ensure_formatting_metadata
@@ -72,9 +74,11 @@ def create_response(data: dict, is_error: bool = False) -> str:
         ['error', 'success']
     """
     success = "true" if not is_error else "false"
-    data["success"] = success
-    ensure_formatting_metadata(data)
-    return json.dumps(data, indent=2, ensure_ascii=False)
+    # Copy so the caller's dict does not gain "success" or "_metadata".
+    payload = dict(data)
+    payload["success"] = success
+    ensure_formatting_metadata(payload)
+    return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
 def read_resource(file_path) -> str:
@@ -140,7 +144,7 @@ def read_file(file_path: str, file_directory: Path) -> str:
     """
     try:
         full_path = (file_directory / file_path).resolve()
-        if not str(full_path).startswith(str(file_directory.resolve())):
+        if not full_path.is_relative_to(file_directory.resolve()):
             raise ValueError("Invalid file path: path traversal detected")
 
         with open(full_path) as file:
@@ -184,12 +188,22 @@ def get_papi_auth_headers(
             assert_never(key_type)
 
 
+def _is_ip_address(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return True
+
+
 def get_papi_url(papi_url_value: str) -> str:
     """
     Construct and return the public API URL from environment variables.
 
     Checks for custom URL override first, then falls back to the standard URL.
     Ensures the URL uses HTTPS protocol and includes the 'api-' subdomain prefix.
+    The prefix is checked on the hostname only and is not added to an IP address.
+    A port is kept and trailing slashes are removed.
 
     Args:
         papi_url_value (str): The URL value to construct the URL from.
@@ -198,22 +212,40 @@ def get_papi_url(papi_url_value: str) -> str:
         str: The properly formatted public API URL with HTTPS protocol and api- prefix.
 
     Raises:
-        ValueError: If the URL environment variable is not set.
+        ValueError: If the URL environment variable is not set, or the URL has no
+            hostname or an invalid port.
     """
     url = papi_url_value
     if not url:
         raise ValueError("No public API URL provided")
 
-    if not url.startswith("https://"):
-        if url.startswith("http://"):
-            url = url.replace("http://", "https://")
-        else:
-            url = f"https://{url}"
+    # Without a scheme, urlsplit reads "tenant.example:443" as scheme "tenant.example".
+    if "://" not in url:
+        url = f"https://{url}"
+    parts = urlsplit(url)
+    hostname = parts.hostname
+    if not hostname:
+        raise ValueError(f"Public API URL has no hostname: {papi_url_value}")
+    if not _is_ip_address(hostname) and not hostname.startswith("api-"):
+        hostname = f"api-{hostname}"
+    if ":" in hostname:  # IPv6 literal
+        hostname = f"[{hostname}]"
+    netloc = hostname if parts.port is None else f"{hostname}:{parts.port}"
 
-    if "api-" not in url:
-        url = url.replace("https://", "https://api-")
+    return urlunsplit(("https", netloc, parts.path.rstrip("/"), parts.query, parts.fragment))
 
-    return url
+
+def path_segment_error(value: str, label: str) -> str | None:
+    """Error text when ``value`` cannot be used as one URL path segment, else None.
+
+    A slash, backslash, query, fragment, percent escape, or a ``.``/``..``
+    segment would move the request off the documented endpoint.
+    """
+    if not value or not value.strip():
+        return f"{label} is empty."
+    if value != value.strip() or value in {".", ".."} or any(char in value for char in "/\\?#%"):
+        return f"{label} cannot contain path characters."
+    return None
 
 
 def bundle_openapi_from_folders():
@@ -258,7 +290,7 @@ def bundle_openapi_files(*specs_dirs: Path) -> dict:
         the provided specs_dirs for additional specification files.
     """
     template_file = (OPENAPI_DIR / "openapi.yaml").resolve()
-    if not str(template_file).startswith(str(OPENAPI_DIR.resolve())):
+    if not template_file.is_relative_to(OPENAPI_DIR.resolve()):
         raise ValueError("Invalid file path: path traversal detected")
 
     spec = bundle_specs(template_file, *specs_dirs)

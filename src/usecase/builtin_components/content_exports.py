@@ -26,7 +26,7 @@ from entities.exceptions import (
     PAPIServerError,
 )
 from pkg.client import ResponseBytes, binary_response_error, response_media_type
-from pkg.util import create_response
+from pkg.util import create_response, path_segment_error
 from usecase.base_module import BaseModule
 from usecase.fetcher import get_fetcher
 
@@ -167,14 +167,6 @@ def _export_request(value: ExportRequest | dict[str, Any]) -> ExportRequest:
         raise ValueError("request_data.filter is required. The filter accepts only field id or name.") from exc
 
 
-def _segment_error(value: str, label: str) -> str | None:
-    if not value or not value.strip():
-        return f"{label} is empty."
-    if value != value.strip() or any(char in value for char in "/\\?#%"):
-        return f"{label} cannot contain path characters."
-    return None
-
-
 async def _read_export(
     ctx: Context,
     method: str,
@@ -259,7 +251,7 @@ async def get_performance_incident_export_by_incident_id(
     (GET /xsoar/public/v1/performance/incident/export/{incident_id}).
     Export an incident's history and workplan. A gzip body is decompressed and parsed as JSON.
     """
-    if error := _segment_error(incident_id, "Incident id"):
+    if error := path_segment_error(incident_id, "Incident id"):
         return create_response(data={"error": error}, is_error=True)
     path = f"/xsoar/public/v1/performance/incident/export/{incident_id}"
     return await _read_export(ctx, "GET", path, None, "incident performance export")

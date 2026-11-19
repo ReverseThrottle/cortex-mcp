@@ -14,6 +14,8 @@ from usecase.builtin_components.cases import get_cases
 from usecase.builtin_components.content_uploads import insert_playbook, insert_script
 from usecase.builtin_components.issues import get_issues
 from usecase.builtin_components.xsoar_actions import (
+    post_entry_upload_by_incident_id,
+    post_incident_upload_by_incident_id,
     post_inv_playbook_task_complete,
     post_playbook_save_yaml,
     put_settings_credentials,
@@ -72,6 +74,7 @@ async def test_get_cases_coerces_ids_and_returns_papi_errors(monkeypatch):
     )
     assert payload["success"] == "true"
     assert payload["reply"] == [{"id": 7}]
+    assert filters == [{"field": "id", "operator": "in", "value": ["7"]}]
     path, kwargs = fetcher.calls[0]
     assert path == "case/search/"
     request_data = kwargs["data"]["request_data"]
@@ -178,6 +181,33 @@ async def test_isolate_and_unisolate_post_endpoint_filters(monkeypatch):
     error = _loaded(await isolate_endpoint(None, ["ep-1"]))
     assert error["success"] == "false"
     assert "offline" in error["error"]
+
+
+@pytest.mark.asyncio
+async def test_endpoint_and_case_writes_reject_an_empty_target_list(monkeypatch):
+    endpoints = _install(monkeypatch, endpoint_actions_module, RecordingFetcher())
+    for tool in (isolate_endpoint, unisolate_endpoint):
+        rejected = _loaded(await tool(None, [], comment="contain"))
+        assert rejected["success"] == "false"
+        assert rejected["error"] == "endpoint_ids must contain at least one endpoint ID."
+    assert endpoints.calls == []
+
+    cases = _install(monkeypatch, case_actions_module, RecordingFetcher())
+    rejected = _loaded(await update_case(None, [], comment="note"))
+    assert rejected["success"] == "false"
+    assert rejected["error"] == "case_ids must contain at least one case ID."
+    assert cases.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", [post_entry_upload_by_incident_id, post_incident_upload_by_incident_id])
+@pytest.mark.parametrize("incident_id", ["1/../../x", "1?x", "1#x", "..", "1%2F"])
+async def test_xsoar_uploads_reject_incident_ids_that_leave_the_path(monkeypatch, tool, incident_id):
+    idle = _install(monkeypatch, xsoar_module, RecordingFetcher())
+    rejected = _loaded(await tool(None, incident_id, "note"))
+    assert rejected["success"] == "false"
+    assert rejected["error"] == "Incident id cannot contain path characters."
+    assert idle.calls == []
 
 
 @pytest.mark.asyncio

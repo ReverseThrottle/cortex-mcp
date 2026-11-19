@@ -175,6 +175,16 @@ async def test_rate_limit_refusal_omits_formatting_instructions(inline_formattin
     assert "rate limit" in body["error"].lower()
 
 
+def test_create_response_leaves_the_callers_dict_unchanged(inline_formatting):
+    for inline in (False, True):
+        inline_formatting(inline=inline)
+        data = {"reply": []}
+        parsed = json.loads(create_response(data, is_error=True))
+        assert parsed["success"] == "false"
+        assert ("_metadata" in parsed) is inline
+        assert data == {"reply": []}
+
+
 def test_opt_in_restores_inline_formatting_on_envelopes(inline_formatting):
     inline_formatting(inline=True)
     parsed = json.loads(create_response({"reply": []}))
