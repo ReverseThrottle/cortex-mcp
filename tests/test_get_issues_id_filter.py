@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 
 import pytest
 
@@ -70,3 +71,51 @@ async def test_list_of_id_values_is_coerced_to_integers(monkeypatch):
 
     assert payload["success"] == "true"
     assert fetcher.payload["request_data"]["filters"][0]["value"] == [12158, 999]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (["123", "456"], [123, 456]),
+        ([123, 456], [123, 456]),
+        (["123", 456], [123, 456]),
+        ("123", [123]),
+        (123, [123]),
+    ],
+)
+async def test_id_coercion_does_not_mutate_callers_filters(monkeypatch, value, expected):
+    fetcher = _Fetcher()
+
+    async def fake_get_fetcher(ctx):
+        return fetcher
+
+    monkeypatch.setattr("usecase.builtin_components.issues.get_fetcher", fake_get_fetcher)
+    filters = [
+        {"field": "id", "operator": "in", "value": value},
+        {"field": "status", "operator": "in", "value": ["new"]},
+    ]
+    before = deepcopy(filters)
+    result = await get_issues(None, filters=filters)
+    payload = json.loads(result)
+
+    assert payload["success"] == "true"
+    assert filters == before
+    assert fetcher.payload["request_data"]["filters"][0]["value"] == expected
+    assert fetcher.payload["request_data"]["filters"][1] == {"field": "status", "operator": "in", "value": ["new"]}
+
+
+@pytest.mark.asyncio
+async def test_invalid_id_returns_error_without_mutating_callers_filters(monkeypatch):
+    async def fake_get_fetcher(ctx):
+        raise AssertionError("invalid id must not call the API")
+
+    monkeypatch.setattr("usecase.builtin_components.issues.get_fetcher", fake_get_fetcher)
+    filters = [{"field": "id", "operator": "in", "value": ["123", "not-a-number"]}]
+    before = deepcopy(filters)
+    result = await get_issues(None, filters=filters)
+    payload = json.loads(result)
+
+    assert payload["success"] == "false"
+    assert "Invalid 'id' filter value" in payload["error"]
+    assert filters == before
