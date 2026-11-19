@@ -28,10 +28,14 @@ from pkg.call_deadline import (
     call_deadline_is_set,
     deadline_exhausted,
     endpoint_label,
-    is_slow_report_or_search,
     remaining_seconds,
     reset_call_deadline,
     upstream_timeout_message,
+)
+from pkg.retry_policy import (
+    SIDE_EFFECT_TIMEOUT_NOTE,
+    may_have_side_effects,
+    read_timeout_is_retryable,
 )
 from pkg.util import get_papi_auth_headers
 
@@ -51,8 +55,9 @@ _PASSTHROUGH_HEADERS = {
 
 # Confirmed full jitter: sleep a uniform value in [0, min(cap, base * 2**attempt)].
 # The failed attempt starts at 0, so the first retry sleeps in [0, base].
-# Read timeouts on report and search endpoints are not retried. Backoff and
-# later attempts stop when the tool-call deadline is exhausted.
+# Read timeouts are not retried on report/search reads or on routes that may
+# mutate tenant state (pkg.retry_policy). Backoff and later attempts stop when
+# the tool-call deadline is exhausted.
 _RETRY_STATUS_CODES = {429, 503}
 _RETRY_BASE_SECONDS = 0.5
 _RETRY_CAP_SECONDS = 8.0
@@ -291,8 +296,8 @@ class PAPIClient(httpx.AsyncClient):
         request.extensions = extensions
         return limit
 
-    def _retry_transport(self, exc: RequestError, url: str, attempt: int, max_retries: int) -> bool:
-        if isinstance(exc, ReadTimeout) and is_slow_report_or_search(url):
+    def _retry_transport(self, exc: RequestError, method: str, url: str, attempt: int, max_retries: int) -> bool:
+        if isinstance(exc, ReadTimeout) and not read_timeout_is_retryable(method, url):
             return False
         if attempt >= max_retries:
             return False
@@ -300,16 +305,19 @@ class PAPIClient(httpx.AsyncClient):
             return False
         return True
 
-    def _give_up_transport(self, exc: RequestError, url: str, attempt_timeout: float) -> NoReturn:
-        slow_read = isinstance(exc, ReadTimeout) and is_slow_report_or_search(url)
-        if slow_read or deadline_exhausted():
-            seconds = attempt_timeout if slow_read else armed_budget_seconds()
+    def _give_up_transport(self, exc: RequestError, method: str, url: str, attempt_timeout: float) -> NoReturn:
+        unsafe_read = isinstance(exc, ReadTimeout) and not read_timeout_is_retryable(method, url)
+        if unsafe_read or deadline_exhausted():
+            seconds = attempt_timeout if unsafe_read else armed_budget_seconds()
+            message = upstream_timeout_message(url, seconds)
+            if unsafe_read and may_have_side_effects(method, url):
+                message += SIDE_EFFECT_TIMEOUT_NOTE
             logger.warning(
                 "Cortex API timed out for %s after %s",
                 endpoint_label(url),
                 type(exc).__name__,
             )
-            raise PAPIDeadlineError(upstream_timeout_message(url, seconds)) from exc
+            raise PAPIDeadlineError(message) from exc
         raise exc
 
     def _ensure_json_body(self, request: httpx.Request) -> httpx.Request:
@@ -370,7 +378,7 @@ class PAPIClient(httpx.AsyncClient):
             try:
                 response = await super().send(outgoing, **kwargs)
             except (ConnectError, TimeoutException, RequestError) as exc:
-                if self._retry_transport(exc, str(outgoing.url), attempt, max_retries):
+                if self._retry_transport(exc, outgoing.method, str(outgoing.url), attempt, max_retries):
                     logger.warning(
                         "Retrying %s %s after %s (retry %s of %s)",
                         outgoing.method,
@@ -382,7 +390,7 @@ class PAPIClient(httpx.AsyncClient):
                     await self._pause_before_retry(attempt)
                     attempt += 1
                     continue
-                self._give_up_transport(exc, str(outgoing.url), attempt_timeout)
+                self._give_up_transport(exc, outgoing.method, str(outgoing.url), attempt_timeout)
             if response.status_code in _RETRY_STATUS_CODES and attempt < max_retries and not deadline_exhausted():
                 logger.warning(
                     "Retrying %s %s after HTTP %s (retry %s of %s)",

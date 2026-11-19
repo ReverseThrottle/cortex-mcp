@@ -7,6 +7,7 @@ from entities.exceptions import (
     PAPIAuthenticationError,
     PAPIClientRequestError,
     PAPIConnectionError,
+    PAPIDeadlineError,
     PAPIServerError,
 )
 from pkg.client import PAPIClient, _backoff_seconds
@@ -206,3 +207,144 @@ async def test_retry_keeps_per_request_timeout(monkeypatch):
     assert len(timeouts) == 2
     assert timeouts[0]["read"] == 120
     assert timeouts[1]["read"] == 120
+
+
+# Issue #46: a ReadTimeout means the request was sent and may already have been
+# applied. Mutating routes (write/action/secret, incl. handwritten tools) must
+# not be retried; the caller must be told the operation may already have run.
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/public_api/v1/endpoints/isolate/"),  # handwritten action
+        ("POST", "/public_api/v1/endpoints/unisolate/"),  # handwritten action
+        ("POST", "/public_api/v1/scripts/run_script"),  # catalog write
+        ("POST", "/public_api/v1/api_keys/generate"),  # catalog write
+        ("POST", "/public_api/v1/case/update/"),  # handwritten write
+        ("PUT", "/public_api/appsec/v1/policies/p-123"),  # catalog write, path parameter
+        ("POST", "/public_api/v1/brokers/dev-1/applets/wec/wef_cert/"),  # catalog secret
+        ("POST", "/public_api/v1/unknown/mutating_path"),  # unclassified POST: fail-safe
+    ],
+)
+async def test_read_timeout_on_mutating_route_is_not_retried(monkeypatch, method, path):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ReadTimeout("slow")
+
+    client = _client(handler, monkeypatch, max_retries=2)
+    with pytest.raises(PAPIDeadlineError) as exc:
+        await client.request(method, path, json={"request_data": {}})
+    await client.aclose()
+
+    assert calls["n"] == 1
+    assert "may already have been applied" in str(exc.value)
+    assert "not retried" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_connect_error_on_mutating_route_still_retries(monkeypatch):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise httpx.ConnectError("temporary failure")
+        return httpx.Response(200, json={"ok": True})
+
+    client = _client(handler, monkeypatch, max_retries=2)
+    result = await client.request("POST", "/public_api/v1/endpoints/isolate/", json={"request_data": {}})
+    await client.aclose()
+
+    assert result == {"ok": True}
+    assert calls["n"] == 3
+
+
+@pytest.mark.asyncio
+async def test_connect_timeout_on_mutating_route_still_retries(monkeypatch):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise httpx.ConnectTimeout("slow connect")
+        return httpx.Response(200, json={"ok": True})
+
+    client = _client(handler, monkeypatch, max_retries=2)
+    result = await client.request("POST", "/public_api/v1/endpoints/isolate/", json={"request_data": {}})
+    await client.aclose()
+
+    assert result == {"ok": True}
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [429, 503])
+async def test_explicit_rejection_on_mutating_route_still_retries(monkeypatch, status):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < 2:
+            return httpx.Response(status, json={"err_code": status})
+        return httpx.Response(200, json={"ok": True})
+
+    client = _client(handler, monkeypatch, max_retries=2)
+    result = await client.request("POST", "/public_api/v1/endpoints/isolate/", json={"request_data": {}})
+    await client.aclose()
+
+    assert result == {"ok": True}
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_read_timeout_on_read_route_still_retries(monkeypatch):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise httpx.ReadTimeout("slow")
+        return httpx.Response(200, json={"ok": True})
+
+    client = _client(handler, monkeypatch, max_retries=2)
+    result = await client.request("POST", "/public_api/v1/playbooks/get", json={"request_data": {}})
+    await client.aclose()
+
+    assert result == {"ok": True}
+    assert calls["n"] == 3
+
+
+@pytest.mark.asyncio
+async def test_read_timeout_on_slow_search_stays_not_retried(monkeypatch):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ReadTimeout("slow")
+
+    client = _client(handler, monkeypatch, max_retries=2)
+    with pytest.raises(PAPIConnectionError):
+        await client.request("POST", "/public_api/v1/incidents/search", json={"request_data": {}})
+    await client.aclose()
+
+    assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_read_timeout_on_unknown_get_still_retries(monkeypatch):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise httpx.ReadTimeout("slow")
+        return httpx.Response(200, json={"ok": True})
+
+    client = _client(handler, monkeypatch, max_retries=2)
+    result = await client.request("GET", "/public_api/v1/unknown/read_path")
+    await client.aclose()
+
+    assert result == {"ok": True}
+    assert calls["n"] == 2
