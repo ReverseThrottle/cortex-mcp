@@ -104,6 +104,7 @@ async def get_issues(
         }
     }
     if filters:
+        filters = [dict(f) for f in filters]  # Copy so the caller's filter dicts are not changed
         for f in filters:
             if f.get("field") == "id":
                 raw_value = f.get("value")
