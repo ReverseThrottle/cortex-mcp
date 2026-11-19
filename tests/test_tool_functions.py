@@ -5,6 +5,7 @@ from io import BytesIO
 
 import pytest
 
+from config.config import get_config
 from entities.exceptions import PAPIAuthenticationError, PAPIConnectionError
 from usecase.builtin_components import cases as cases_module
 from usecase.builtin_components import content_uploads as uploads_module
@@ -262,7 +263,8 @@ async def test_xql_stream_decodes_gzip_and_rejects_an_empty_id(monkeypatch):
     assert path == "/public_api/v1/xql/get_query_results_stream"
     assert kwargs["raw"] is True
     assert kwargs["omit_papi_prefix"] is True
-    assert kwargs["timeout"] == 300
+    # Issue #44: the download gets the whole call budget, not an unreachable 300 s.
+    assert kwargs["timeout"] == get_config().cortex_call_deadline_s
     assert kwargs["data"]["request_data"] == {"stream_id": "stream-1", "is_gzip_compressed": True}
 
     _install(monkeypatch, xql_module, RecordingFetcher({"reply": "not-bytes"}))
