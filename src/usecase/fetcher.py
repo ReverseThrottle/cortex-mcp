@@ -51,7 +51,7 @@ class Fetcher:
         stream: Literal[True],
         files: Optional[dict] = ...,
         raw: Literal[False] = ...,
-        timeout: Optional[int] = ...,
+        timeout: Optional[float] = ...,
     ) -> io.BytesIO: ...
 
     @overload
@@ -66,7 +66,7 @@ class Fetcher:
         stream: Literal[False] = ...,
         files: Optional[dict] = ...,
         raw: Literal[True],
-        timeout: Optional[int] = ...,
+        timeout: Optional[float] = ...,
     ) -> bytes: ...
 
     @overload
@@ -80,7 +80,7 @@ class Fetcher:
         stream: Literal[False] = ...,
         files: Optional[dict] = ...,
         raw: Literal[False] = ...,
-        timeout: Optional[int] = ...,
+        timeout: Optional[float] = ...,
     ) -> dict[str, Any]: ...
 
     async def send_request(
@@ -93,7 +93,7 @@ class Fetcher:
         stream: bool = False,
         files: Optional[dict] = None,
         raw: bool = False,
-        timeout: Optional[int] = None,
+        timeout: Optional[float] = None,
     ) -> dict[str, Any] | io.BytesIO | bytes:
         """
         Send an HTTP request to the public API.
@@ -110,7 +110,7 @@ class Fetcher:
             stream (bool, optional): Whether to stream response. Defaults to False.
             files (dict, optional): Multipart file payload. When set, the body is not sent as JSON.
             raw (bool, optional): Return the response body bytes instead of parsed JSON.
-            timeout (int, optional): Request timeout in seconds. Defaults to CORTEX_MCP_TIMEOUT_S.
+            timeout (float, optional): Request timeout in seconds. Defaults to CORTEX_MCP_TIMEOUT_S.
                 The tool-call deadline still caps the attempt.
 
         Returns:

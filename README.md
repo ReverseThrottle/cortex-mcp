@@ -182,6 +182,8 @@ All configuration is via environment variables (or a `.env` file in the project 
 
 `CORTEX_MCP_CALL_DEADLINE_S` is the hard stop for a tool call. The default is under the MCP client's usual 60 second request timeout, so the tool can return an `isError` result instead of the client failing with JSON-RPC `-32001` (`Request timed out`). A read timeout on a report or search endpoint, including `post_mth_child_get_all_reports`, is not retried. Connection errors and HTTP 429 or 503 still retry until the retry limit or the deadline, whichever comes first. A longer timeout passed by an export or XQL helper cannot outlive the deadline.
 
+`run_xql_query` starts the query and then polls inside that same budget. If the deadline cancels polling after the query started, the error result carries the `execution_id` and a `recovery_hint`: retrieve the results with `post_xql_get_query_results` (`request_data.query_id` = the returned `execution_id`) instead of spending XQL quota on a duplicate query. `post_xql_get_query_results_stream` gives its single download attempt the whole call budget, so a stream download cannot outlive `CORTEX_MCP_CALL_DEADLINE_S` either. For large result sets, raise the deadline and the MCP client's request timeout together.
+
 The gateway or MCP client has its own timer. Prisma AIRS / Portkey and the TypeScript MCP SDK use `MCP_REQUEST_TIMEOUT_MS` (SDK default `60000`). That variable is not read by cortex-mcp. Keep it higher than `CORTEX_MCP_CALL_DEADLINE_S` in milliseconds. Raise the deadline only when that client timeout is raised with it.
 
 ### Optional — on-appliance Broker VM
