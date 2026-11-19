@@ -37,8 +37,9 @@ class Settings(BaseSettings):
     isolate_endpoint_tool_enabled: bool = Field(False, validation_alias="MCP_ISOLATE_ENDPOINT_TOOL_ENABLED")
     http_response_error_message_max_size: int = Field(1000, validation_alias="CORTEX_MCP_RESPONSE_ERROR_MAX_SIZE")
     max_retries: int = Field(3, validation_alias="CORTEX_MCP_MAX_RETRIES")
-    # One Cortex HTTP attempt. Report and search read timeouts are not retried,
-    # so this is how long those calls wait before the tool returns an error.
+    # One Cortex HTTP attempt. Read timeouts on report/search reads and on
+    # mutating or unclassified non-read routes are not retried, so this is how
+    # long those calls wait before the tool returns an error.
     cortex_timeout_s: float = Field(20.0, gt=0, validation_alias="CORTEX_MCP_TIMEOUT_S")
     # Wall-clock budget for one tools/call, including retries and backoff.
     # The default sits under the MCP SDK's 60s request timeout.

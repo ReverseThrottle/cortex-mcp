@@ -177,6 +177,7 @@ All configuration is via environment variables (or a `.env` file in the project 
 | `CORTEX_MCP_MAX_RETRIES` | `3` | Extra attempts after the first request when the Cortex call fails to connect, returns HTTP 429 or 503, or times out reading a read-only route |
 | `CORTEX_MCP_TIMEOUT_S` | `20` | Seconds for one Cortex HTTP attempt (connect, write, and read) |
 | `CORTEX_MCP_CALL_DEADLINE_S` | `45` | Wall-clock seconds for one `tools/call`, including retries and backoff |
+| `MCP_MAX_RESPONSE_BYTES` | `262144` | Byte cap (256 KB) on a tool result's JSON envelope. An oversized payload is trimmed to fit and marked `truncated: true` with `returned` and `total` row counts. |
 | `MCP_TOOL_CALLS_PER_SECOND` | `10` | Sustained `tools/call` rate for the whole process. `tools/list` is not counted. |
 | `MCP_TOOL_CALL_BURST` | `20` | Maximum `tools/call` burst before the limit returns an error. |
 
@@ -198,6 +199,12 @@ These settings stay on the server. They are not tool parameters, and the MCP bea
 | `CORTEX_MCP_BROKER_FACTORY_PASSWORD` | unset | Factory or current admin password. The server exchanges it for a 10-minute bearer at `POST /public_api/v1/auth/token` and uses that bearer for the other appliance calls. |
 
 `post_auth_reset_initial_password` sends this password as `current_password`. After it succeeds, this process uses the new password for later broker logins. Set the environment variable to that new password before the next restart.
+
+### Optional — content updates
+
+| Variable | Default | Description |
+|---|---|---|
+| `CORTEX_MCP_UPDATE_FOLDER` | `src/usecase/remote_components` | Folder the `update` CLI command refreshes with Cortex-managed remote components. `--folder` overrides it for one run. The folder is fully replaced on every update. |
 
 ---
 
