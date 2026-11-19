@@ -393,6 +393,12 @@ async def update_tools(args: argparse.Namespace):
 
     Args:
         args: Parsed command line arguments
+
+    Raises:
+        SystemExit: With code 1 on any failure, mirroring the 'start' command
+            so shells and CI can observe a failed update. The finally block
+            still cleans up temporary files because SystemExit is not caught
+            by the Exception handlers below.
     """
     setup_env(args)
     logger.info("--- Updating Content Folder ---")
@@ -402,7 +408,7 @@ async def update_tools(args: argparse.Namespace):
     logger.info(f"[Python] Validating path: {target_remote_tools_path}...")
     if not os.path.isdir(target_remote_tools_path):
         logger.error(f"[Python] Error: The specified folder '{target_remote_tools_path}' does not exist.")
-        return
+        sys.exit(1)
 
     logger.info("[Python] cortex tools directory detected. Commencing update...")
 
@@ -432,12 +438,16 @@ async def update_tools(args: argparse.Namespace):
         logger.error(f"[Python] Error: Failed to download content from API: {e}")
         if e.status_code is not None:
             logger.error(f"[Python] HTTP Status Code: {e.status_code}")
+        sys.exit(1)
     except zipfile.BadZipFile:
         logger.error("[Python] Error: Downloaded file is not a valid zip archive.")
+        sys.exit(1)
     except FileNotFoundError as e:
         logger.error(f"[Python] Error: {e}")
+        sys.exit(1)
     except Exception as e:
         logger.error(f"[Python] Unexpected error during update: {e}")
+        sys.exit(1)
     finally:
         # Always clean up temporary files
         cleanup_temp_files(temp_zip_path, temp_extract_dir)

@@ -287,7 +287,198 @@ async def test_update_reports_papi_download_errors(isolated_env, monkeypatch, tm
 
     monkeypatch.setattr(cli, "download_update_package", denied)
     with caplog.at_level("ERROR"):
-        await cli.update_tools(_args(folder=str(tmp_path)))
+        with pytest.raises(SystemExit) as caught:
+            await cli.update_tools(_args(folder=str(tmp_path)))
+    assert caught.value.code == 1
     assert "Failed to download content from API: Authentication failed" in caplog.text
     assert "HTTP Status Code: 401" in caplog.text
     assert "Unexpected error" not in caplog.text
+
+
+def _write_update_zip(tmp_path, members: dict[str, str]) -> str:
+    """Write a zip whose members live under the remote-tools path extract_remote_tools expects."""
+    zip_path = tmp_path / "update.zip"
+    relative_dir = cli.REMOTE_DIR.relative_to(cli.MAIN_DIR).as_posix()
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        for name, data in members.items():
+            archive.writestr(f"{relative_dir}/{name}", data)
+    return str(zip_path)
+
+
+@pytest.mark.asyncio
+async def test_update_exits_non_zero_when_the_folder_is_missing(isolated_env, tmp_path, caplog):
+    missing = tmp_path / "does-not-exist"
+    with caplog.at_level("ERROR"):
+        with pytest.raises(SystemExit) as caught:
+            await cli.update_tools(_args(folder=str(missing)))
+    assert caught.value.code == 1
+    assert f"The specified folder '{missing}' does not exist." in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_update_exits_non_zero_on_invalid_zip(isolated_env, monkeypatch, tmp_path, caplog):
+    bad_zip = tmp_path / "bad.zip"
+    bad_zip.write_bytes(b"this is not a zip archive")
+
+    async def fake_download():
+        return str(bad_zip)
+
+    monkeypatch.setattr(cli, "download_update_package", fake_download)
+    with caplog.at_level("ERROR"):
+        with pytest.raises(SystemExit) as caught:
+            await cli.update_tools(_args(folder=str(tmp_path)))
+    assert caught.value.code == 1
+    assert "Downloaded file is not a valid zip archive." in caplog.text
+    # finally cleanup must still run even though the handler raises SystemExit.
+    assert not bad_zip.exists()
+
+
+@pytest.mark.asyncio
+async def test_update_exits_non_zero_when_remote_tools_missing_from_zip(isolated_env, monkeypatch, tmp_path, caplog):
+    zip_path = tmp_path / "no-remote-tools.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("somewhere_else/tool.yml", "data")
+
+    async def fake_download():
+        return str(zip_path)
+
+    monkeypatch.setattr(cli, "download_update_package", fake_download)
+    with caplog.at_level("ERROR"):
+        with pytest.raises(SystemExit) as caught:
+            await cli.update_tools(_args(folder=str(tmp_path)))
+    assert caught.value.code == 1
+    assert "Could not find remote_tools directory at expected path" in caplog.text
+    assert not zip_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_update_exits_non_zero_on_unexpected_error(isolated_env, monkeypatch, tmp_path, caplog):
+    zip_path = _write_update_zip(tmp_path, {"new.yml": "new"})
+
+    async def fake_download():
+        return zip_path
+
+    def broken_extract(_zip_path):
+        raise RuntimeError("extract exploded")
+
+    monkeypatch.setattr(cli, "download_update_package", fake_download)
+    monkeypatch.setattr(cli, "extract_remote_tools", broken_extract)
+    with caplog.at_level("ERROR"):
+        with pytest.raises(SystemExit) as caught:
+            await cli.update_tools(_args(folder=str(tmp_path)))
+    assert caught.value.code == 1
+    assert "Unexpected error during update: extract exploded" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_update_exits_non_zero_when_replace_fails_and_backup_is_restored(
+    isolated_env, monkeypatch, tmp_path, caplog
+):
+    """A rolled-back update restored the old folder but must still exit 1 (issue #57)."""
+    target = tmp_path / "remote_tools"
+    target.mkdir()
+    (target / "old.yml").write_text("old")
+    zip_path = _write_update_zip(tmp_path, {"new.yml": "new"})
+
+    async def fake_download():
+        return zip_path
+
+    real_move = cli.shutil.move
+
+    def flaky_move(src, dst, *args, **kwargs):
+        # Fail only the install move (extracted -> target); allow backup and restore moves.
+        if str(dst) == str(target) and "_backup_" not in str(src):
+            raise OSError("disk full")
+        return real_move(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(cli, "download_update_package", fake_download)
+    monkeypatch.setattr(cli.shutil, "move", flaky_move)
+    # INFO: the restore confirmation is logged at info level.
+    with caplog.at_level("INFO"):
+        with pytest.raises(SystemExit) as caught:
+            await cli.update_tools(_args(folder=str(target)))
+    assert caught.value.code == 1
+    assert "Unexpected error during update: disk full" in caplog.text
+    assert "Restored backup due to error." in caplog.text
+    assert (target / "old.yml").read_text() == "old"
+    assert not (target / "new.yml").exists()
+    assert list(tmp_path.glob("*_backup_*")) == []
+
+
+@pytest.mark.asyncio
+async def test_update_success_keeps_exit_zero(isolated_env, monkeypatch, tmp_path, caplog):
+    target = tmp_path / "remote_tools"
+    target.mkdir()
+    (target / "old.yml").write_text("old")
+    zip_path = _write_update_zip(tmp_path, {"new.yml": "new"})
+
+    async def fake_download():
+        return zip_path
+
+    monkeypatch.setattr(cli, "download_update_package", fake_download)
+    with caplog.at_level("INFO"):
+        # No SystemExit: a successful update must leave the exit status at 0.
+        await cli.update_tools(_args(folder=str(target)))
+    assert (target / "new.yml").read_text() == "new"
+    assert not (target / "old.yml").exists()
+    assert list(tmp_path.glob("*_backup_*")) == []
+    assert not os.path.exists(zip_path)
+    assert "remote_tools update process complete." in caplog.text
+
+
+def test_main_cli_exits_non_zero_when_update_fails(isolated_env, monkeypatch, tmp_path):
+    """SystemExit(1) from update_tools must propagate through asyncio.run in main_cli."""
+
+    async def denied():
+        raise PAPIAuthenticationError("Authentication failed (HTTP 401): bad key", status_code=401)
+
+    monkeypatch.setattr(cli, "download_update_package", denied)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mcp_cli",
+            "update",
+            "--api_key_id",
+            "1",
+            "--api_key_secret",
+            "secret",
+            "--server-url",
+            "https://tenant.example",
+            "--folder",
+            str(tmp_path),
+        ],
+    )
+    with pytest.raises(SystemExit) as caught:
+        cli.main_cli()
+    assert caught.value.code == 1
+
+
+def test_main_cli_update_success_exits_zero(isolated_env, monkeypatch, tmp_path):
+    target = tmp_path / "remote_tools"
+    target.mkdir()
+    zip_path = _write_update_zip(tmp_path, {"new.yml": "new"})
+
+    async def fake_download():
+        return zip_path
+
+    monkeypatch.setattr(cli, "download_update_package", fake_download)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mcp_cli",
+            "update",
+            "--api_key_id",
+            "1",
+            "--api_key_secret",
+            "secret",
+            "--server-url",
+            "https://tenant.example",
+            "--folder",
+            str(target),
+        ],
+    )
+    # Returning without SystemExit is the exit-0 contract of main_cli.
+    cli.main_cli()
+    assert (target / "new.yml").read_text() == "new"
