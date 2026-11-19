@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # --- Log Settings ---
     log_enable_uvicorn_access_logs: bool = Field(True, validation_alias="LOG_ENABLE_UVICORN_ACCESS_LOGS")
-    log_level: str = Field("DEBUG", validation_alias="LOG_LEVEL")
+    log_level: str = Field("INFO", validation_alias="LOG_LEVEL")
 
     # This configuration tells Pydantic to:
     # 1. Load variables from a file named '.env' (for local development).

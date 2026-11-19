@@ -97,7 +97,7 @@ def test_parse_start_update_and_version(monkeypatch):
     assert version.func is cli.display_version
 
 
-def test_parse_start_defaults_log_level_and_rejects_unknown_input(monkeypatch):
+def test_parse_start_log_level_defaults_to_none_and_rejects_unknown_input(monkeypatch):
     start = _parse(
         monkeypatch,
         "start",
@@ -108,7 +108,9 @@ def test_parse_start_defaults_log_level_and_rejects_unknown_input(monkeypatch):
         "--server-url",
         "https://tenant.example",
     )
-    assert start.log_level == "DEBUG"
+    # None means "not passed": setup_env must leave LOG_LEVEL from env/.env
+    # alone instead of exporting a parser default over it (#56).
+    assert start.log_level is None
 
     with pytest.raises(SystemExit) as missing:
         _parse(monkeypatch)
@@ -160,6 +162,44 @@ def test_setup_env_ignores_commands_without_log_level_or_folder(isolated_env):
     assert os.environ["CORTEX_MCP_PAPI_AUTH_ID"] == "4"
     assert "LOG_LEVEL" not in os.environ
     assert "CORTEX_MCP_UPDATE_FOLDER" not in os.environ
+
+
+@pytest.mark.parametrize(
+    ("flag_level", "effective"),
+    [(None, "WARNING"), ("ERROR", "ERROR")],
+    ids=["omitted-flag-preserves-env", "explicit-flag-overrides-env"],
+)
+def test_log_level_flag_env_precedence(isolated_env, monkeypatch, flag_level, effective):
+    """Regression for #56: omitting --log-level must not clobber LOG_LEVEL.
+
+    Goes through the real parser and setup_env with LOG_LEVEL=WARNING in the
+    environment: omitted flag keeps WARNING, explicit flag wins over it.
+    """
+    os.environ["LOG_LEVEL"] = "WARNING"
+    argv = ["start", "--api_key_id", "1", "--api_key_secret", "secret", "--server-url", "https://tenant.example"]
+    if flag_level is not None:
+        argv += ["--log-level", flag_level]
+    args = _parse(monkeypatch, *argv)
+    cli.setup_env(args)
+    assert os.environ["LOG_LEVEL"] == effective
+    assert cli.config.log_level == effective
+
+
+def test_log_level_unset_everywhere_falls_back_to_settings_default(isolated_env, monkeypatch):
+    """With no flag and no LOG_LEVEL in the environment, Settings supplies INFO."""
+    args = _parse(
+        monkeypatch,
+        "start",
+        "--api_key_id",
+        "1",
+        "--api_key_secret",
+        "secret",
+        "--server-url",
+        "https://tenant.example",
+    )
+    cli.setup_env(args)
+    assert "LOG_LEVEL" not in os.environ
+    assert cli.config.log_level == "INFO"
 
 
 @pytest.mark.parametrize(

@@ -14,7 +14,7 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
-from config.config import get_config, reload_config
+from config.config import Settings, get_config, reload_config
 from entities.exceptions import PAPIClientError
 from main import async_main
 from pkg.setup_logging import setup_logging
@@ -77,9 +77,12 @@ def setup_commands(subparsers: argparse._SubParsersAction):
     setup_api_arguments(start_parser)
     start_parser.add_argument(
         "--log-level",
-        help="Log level (default: info)",
+        # default=None so omitting the flag leaves LOG_LEVEL from env/.env
+        # untouched (setup_env exports only when set). The help text derives
+        # its fallback from the Settings default so the two cannot drift (#56).
+        help=f"Log level (default: environment variable LOG_LEVEL, otherwise {Settings.model_fields['log_level'].default}).",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="DEBUG",
+        default=None,
     )
 
     start_parser.set_defaults(func=start_server)

@@ -54,3 +54,30 @@ def test_settings_alias_is_documented(alias: str, doc: Path) -> None:
         f"Document it there: add a row to the README configuration tables and an "
         f"entry (commented out if optional) to .env.example, with its default and behavior."
     )
+
+
+def test_log_level_default_matches_docs() -> None:
+    """Regression for #56: the presence guard above let default *values* drift.
+
+    Settings said DEBUG while README and .env.example said INFO. Pin LOG_LEVEL's
+    documented default to the model's. The CLI --log-level help text derives its
+    fallback from the same Settings field, so all four surfaces share one source
+    of truth.
+    """
+    default = Settings.model_fields["log_level"].default
+
+    readme = README.read_text(encoding="utf-8")
+    row = re.search(r"^\|\s*`LOG_LEVEL`\s*\|\s*`([^`]+)`\s*\|", readme, re.MULTILINE)
+    assert row, "README.md has no LOG_LEVEL configuration-table row to check the default against"
+    assert row.group(1) == default, (
+        f"README.md documents LOG_LEVEL default {row.group(1)!r} but Settings.log_level "
+        f"defaults to {default!r}. Make them agree (#56)."
+    )
+
+    env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
+    entry = re.search(r"^LOG_LEVEL=(\S+)$", env_example, re.MULTILINE)
+    assert entry, ".env.example has no active LOG_LEVEL entry to check the default against"
+    assert entry.group(1) == default, (
+        f".env.example sets LOG_LEVEL={entry.group(1)!r} but Settings.log_level "
+        f"defaults to {default!r}. Make them agree (#56)."
+    )
