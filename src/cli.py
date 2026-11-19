@@ -38,7 +38,10 @@ def setup_api_arguments(subparser: argparse.ArgumentParser):
     subparser.add_argument(
         "--api_key_id",
         type=int,
-        default=config.papi_auth_id_key,
+        # argparse applies `type` to string defaults, so the config's "" (env
+        # unset) would crash with "invalid int value: ''" before setup_env can
+        # print its guidance. None skips conversion; setup_env validates it.
+        default=config.papi_auth_id_key or None,
         help="The ID of the api key (default: environment variable: CORTEX_MCP_PAPI_AUTH_ID).",
     )
     subparser.add_argument(
@@ -127,7 +130,7 @@ def setup_env(args: argparse.Namespace):
 
     if not args.server_url:
         logger.error(
-            "[Python] Error: PAPI Server URL is required. Please provide --server_url or set CORTEX_MCP_PAPI_URL environment variable."
+            "[Python] Error: PAPI Server URL is required. Please provide --server-url or set CORTEX_MCP_PAPI_URL environment variable."
         )
         sys.exit(1)
     os.environ["CORTEX_MCP_PAPI_URL"] = args.server_url
