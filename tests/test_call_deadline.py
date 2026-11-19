@@ -230,8 +230,10 @@ async def test_read_timeout_on_other_endpoints_still_retries(monkeypatch):
         raise httpx.ReadTimeout("slow")
 
     client = _client(handler, monkeypatch)
+    # get_endpoints is a classified catalog read; unclassified POSTs are now
+    # treated as potentially mutating and are not retried (issue #46).
     with pytest.raises(PAPIConnectionError, match="Request timeout"):
-        await client.request("POST", "/public_api/v1/endpoints/get_endpoint")
+        await client.request("POST", "/public_api/v1/endpoints/get_endpoints")
     await client.aclose()
     assert calls["n"] == 4
 
@@ -250,8 +252,8 @@ async def test_read_timeout_retries_stop_at_the_deadline(monkeypatch):
         raise httpx.ReadTimeout("slow")
 
     client = _client(handler, monkeypatch, clock=clock)
-    with pytest.raises(PAPIDeadlineError, match="within 45 s for endpoints/get_endpoint"):
-        await client.request("POST", "/public_api/v1/endpoints/get_endpoint")
+    with pytest.raises(PAPIDeadlineError, match="within 45 s for endpoints/get_endpoints"):
+        await client.request("POST", "/public_api/v1/endpoints/get_endpoints")
     await client.aclose()
 
     assert calls["n"] == 3

@@ -174,13 +174,15 @@ All configuration is via environment variables (or a `.env` file in the project 
 | `LOG_ENABLE_UVICORN_ACCESS_LOGS` | `true` | Toggle uvicorn HTTP access logs |
 | `MAX_OBJECTS_TO_RETRIEVE` | `50` | Default page size for list operations |
 | `CORTEX_MCP_RESPONSE_ERROR_MAX_SIZE` | `1000` | Max characters of error detail returned to the LLM |
-| `CORTEX_MCP_MAX_RETRIES` | `3` | Extra attempts after the first request when the Cortex call fails to connect, times out, or returns HTTP 429 or 503 |
+| `CORTEX_MCP_MAX_RETRIES` | `3` | Extra attempts after the first request when the Cortex call fails to connect, returns HTTP 429 or 503, or times out reading a read-only route |
 | `CORTEX_MCP_TIMEOUT_S` | `20` | Seconds for one Cortex HTTP attempt (connect, write, and read) |
 | `CORTEX_MCP_CALL_DEADLINE_S` | `45` | Wall-clock seconds for one `tools/call`, including retries and backoff |
 | `MCP_TOOL_CALLS_PER_SECOND` | `10` | Sustained `tools/call` rate for the whole process. `tools/list` is not counted. |
 | `MCP_TOOL_CALL_BURST` | `20` | Maximum `tools/call` burst before the limit returns an error. |
 
 `CORTEX_MCP_CALL_DEADLINE_S` is the hard stop for a tool call. The default is under the MCP client's usual 60 second request timeout, so the tool can return an `isError` result instead of the client failing with JSON-RPC `-32001` (`Request timed out`). A read timeout on a report or search endpoint, including `post_mth_child_get_all_reports`, is not retried. Connection errors and HTTP 429 or 503 still retry until the retry limit or the deadline, whichever comes first. A longer timeout passed by an export or XQL helper cannot outlive the deadline.
+
+A read timeout on a route that may change tenant state is also not retried. The request was already sent, so the operation may have been applied; resending it could isolate an endpoint twice, run a script twice, or generate extra API keys. The tool returns a timeout error saying the operation may already have been applied instead of sending it again. The route classes come from the same side-effect classification as the tool annotations: `x-cortex-mcp-side-effect` in the bundled OpenAPI catalog plus the handwritten tool registry (`src/pkg/retry_policy.py`). An unclassified non-read route (POST, PUT, PATCH, DELETE) is treated as mutating, so a new route is not retried on a read timeout until it is classified. Broker VM tools use a separate client that never retries.
 
 `run_xql_query` starts the query and then polls inside that same budget. If the deadline cancels polling after the query started, the error result carries the `execution_id` and a `recovery_hint`: retrieve the results with `post_xql_get_query_results` (`request_data.query_id` = the returned `execution_id`) instead of spending XQL quota on a duplicate query. `post_xql_get_query_results_stream` gives its single download attempt the whole call budget, so a stream download cannot outlive `CORTEX_MCP_CALL_DEADLINE_S` either. For large result sets, raise the deadline and the MCP client's request timeout together.
 
