@@ -26,6 +26,9 @@ def isolated_env():
     previous = {key: os.environ.get(key) for key in _ENV_KEYS}
     for key in _ENV_KEYS:
         os.environ.pop(key, None)
+    # Parser defaults are read from cli.config at parse_args() time; reload so
+    # they reflect the isolated environment, not whatever was set at import.
+    cli.config = reload_config()
     yield
     for key, value in previous.items():
         if value is None:
@@ -178,6 +181,58 @@ def test_setup_env_exits_when_a_required_value_is_missing(isolated_env, caplog, 
     assert ("CORTEX_MCP_PAPI_AUTH_ID" in os.environ) is (field != "api_key_id")
     assert ("CORTEX_MCP_PAPI_AUTH_HEADER" in os.environ) is (field == "server_url")
     assert "CORTEX_MCP_PAPI_URL" not in os.environ
+
+
+@pytest.mark.parametrize("command", ["start", "update"])
+def test_omitted_api_key_id_with_unset_env_reaches_guidance(isolated_env, monkeypatch, caplog, command):
+    """Regression for #47: the empty-string env default must not crash argparse.
+
+    Goes through the real parser with CORTEX_MCP_PAPI_AUTH_ID unset, then
+    setup_env, expecting the friendly exit-1 guidance instead of exit 2.
+    """
+    args = _parse(monkeypatch, command, "--api_key_secret", "secret", "--server-url", "https://tenant.example")
+    assert args.api_key_id is None
+    with caplog.at_level("ERROR"):
+        with pytest.raises(SystemExit) as caught:
+            cli.setup_env(args)
+    assert caught.value.code == 1
+    assert "API key ID is required. Please provide --api_key_id or set CORTEX_MCP_PAPI_AUTH_ID" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("flag", "guidance"),
+    [
+        ("--api_key_id", "Please provide --api_key_id or set CORTEX_MCP_PAPI_AUTH_ID"),
+        ("--api_key_secret", "Please provide --api_key_secret or set CORTEX_MCP_PAPI_AUTH_HEADER"),
+        ("--server-url", "Please provide --server-url or set CORTEX_MCP_PAPI_URL"),
+    ],
+)
+def test_missing_value_guidance_names_flags_the_parser_accepts(isolated_env, monkeypatch, caplog, flag, guidance):
+    """Regression for #47: guidance must name real flags (e.g. --server-url, not --server_url)."""
+    pairs = [("--api_key_id", "1"), ("--api_key_secret", "secret"), ("--server-url", "https://tenant.example")]
+    argv = ["start"] + [token for name, value in pairs if name != flag for token in (name, value)]
+    args = _parse(monkeypatch, *argv)
+    with caplog.at_level("ERROR"):
+        with pytest.raises(SystemExit) as caught:
+            cli.setup_env(args)
+    assert caught.value.code == 1
+    assert guidance in caplog.text
+
+
+def test_env_provided_api_key_id_still_parses_and_exports(isolated_env, monkeypatch):
+    monkeypatch.setenv("CORTEX_MCP_PAPI_AUTH_ID", "7")
+    cli.config = reload_config()
+    args = _parse(monkeypatch, "start", "--api_key_secret", "secret", "--server-url", "https://tenant.example")
+    assert args.api_key_id == 7
+    cli.setup_env(args)
+    assert os.environ["CORTEX_MCP_PAPI_AUTH_ID"] == "7"
+    assert cli.config.papi_auth_id_key == "7"
+
+
+def test_explicit_non_integer_api_key_id_is_still_an_argparse_error(isolated_env, monkeypatch):
+    with pytest.raises(SystemExit) as caught:
+        _parse(monkeypatch, "start", "--api_key_id", "not-a-number")
+    assert caught.value.code == 2
 
 
 @pytest.mark.parametrize("name", ["../evil.txt", "remote_tools/../../evil.txt", "/tmp/evil.txt"])
