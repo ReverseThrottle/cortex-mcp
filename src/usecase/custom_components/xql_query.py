@@ -16,6 +16,7 @@ from entities.exceptions import (
     PAPIResponseError,
     PAPIServerError,
 )
+from pkg.call_deadline import record_call_recovery
 from pkg.util import create_response
 from usecase.base_module import BaseModule
 from usecase.fetcher import get_fetcher
@@ -33,7 +34,19 @@ _PAPI_ERRORS = (
 
 _POLL_INTERVAL_SECONDS = 2
 _MAX_POLL_ATTEMPTS = 60  # documented queries can stay pending well past 30 seconds
-_STREAM_TIMEOUT_SECONDS = 300
+
+
+def _results_recovery(execution_id: str) -> dict:
+    """Fields that let a caller retrieve a started query after a timeout."""
+    return {
+        "execution_id": execution_id,
+        "recovery_hint": (
+            "The query was started on the tenant but results were not returned in time. "
+            "Retrieve them with post_xql_get_query_results (request_data.query_id = this execution_id); "
+            "if the reply contains a stream_id, download it with post_xql_get_query_results_stream. "
+            "Do not start the query again."
+        ),
+    }
 
 
 async def run_xql_query(
@@ -112,6 +125,10 @@ async def run_xql_query(
             )
 
         logger.info(f"XQL query started with execution_id={execution_id}")
+        # A deadline cancellation raises CancelledError, which bypasses the
+        # handlers below. Record the handle so the middleware's timeout error
+        # still carries it and the query is not orphaned on the tenant.
+        record_call_recovery(**_results_recovery(execution_id))
 
         # Step 2: Poll for results
         results_payload = {
@@ -154,7 +171,8 @@ async def run_xql_query(
 
         return create_response(
             data={
-                "error": f"XQL query {execution_id} timed out after {_MAX_POLL_ATTEMPTS * _POLL_INTERVAL_SECONDS} seconds"
+                "error": f"XQL query {execution_id} timed out after {_MAX_POLL_ATTEMPTS * _POLL_INTERVAL_SECONDS} seconds",
+                **_results_recovery(execution_id),
             },
             is_error=True,
         )
@@ -205,12 +223,16 @@ async def post_xql_get_query_results_stream(
         return create_response(data={"error": "stream_id is empty."}, is_error=True)
     try:
         fetcher = await get_fetcher(ctx)
+        # One download attempt gets the whole call budget; PAPIClient caps it
+        # at the remaining deadline. A stream cannot outlive the tools/call
+        # deadline — raise CORTEX_MCP_CALL_DEADLINE_S (and the MCP client's
+        # request timeout with it) for large result sets.
         payload = await fetcher.send_request(
             "/public_api/v1/xql/get_query_results_stream",
             data={"request_data": {"stream_id": stream_id, "is_gzip_compressed": is_gzip_compressed}},
             omit_papi_prefix=True,
             raw=True,
-            timeout=_STREAM_TIMEOUT_SECONDS,
+            timeout=get_config().cortex_call_deadline_s,
         )
         if not isinstance(payload, (bytes, bytearray)):
             return create_response(data={"error": "XQL stream response was not a byte payload."}, is_error=True)

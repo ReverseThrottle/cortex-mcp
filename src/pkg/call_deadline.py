@@ -25,6 +25,12 @@ _TIMEOUT_MARKER = "Cortex API did not respond within"
 _call_deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar("cortex_call_deadline", default=None)
 # The configured budget, in seconds, that produced that deadline.
 _call_budget: contextvars.ContextVar[float | None] = contextvars.ContextVar("cortex_call_budget", default=None)
+# Recovery fields for the in-flight tools/call, armed by the middleware. The
+# tool runs in a child task with a copied context, so a ContextVar.set inside
+# it would be invisible here; the tool mutates this shared dict in place instead.
+_call_recovery: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "cortex_call_recovery", default=None
+)
 
 _DeadlineTokens = tuple[contextvars.Token[float | None], contextvars.Token[float | None]]
 
@@ -112,6 +118,20 @@ def deadline_exhausted() -> bool:
     return remaining < _MIN_ATTEMPT_SECONDS
 
 
+def record_call_recovery(**fields: Any) -> None:
+    """Attach recovery fields to the in-flight tools/call's timeout error.
+
+    A tool that starts durable upstream work (an XQL execution, say) records
+    the handle here right after the start succeeds. If the call deadline then
+    cancels the tool, the middleware returns these fields with its timeout
+    error so the caller can retrieve the work instead of orphaning it.
+    No-op outside a middleware-armed call, e.g. a direct invocation in tests.
+    """
+    slot = _call_recovery.get()
+    if slot is not None:
+        slot.update(fields)
+
+
 def _tool_name(context: MiddlewareContext) -> str:
     message = getattr(context, "message", None)
     name = getattr(message, "name", None)
@@ -120,8 +140,11 @@ def _tool_name(context: MiddlewareContext) -> str:
     return "Cortex API"
 
 
-def _error_result(message: str) -> ToolResult:
-    body = json.loads(create_response(data={"error": message}, is_error=True))
+def _error_result(message: str, recovery: dict[str, Any] | None = None) -> ToolResult:
+    data: dict[str, Any] = {"error": message}
+    if recovery:
+        data.update(recovery)
+    body = json.loads(create_response(data=data, is_error=True))
     return ToolResult(content=body, structured_content=body, is_error=True)
 
 
@@ -137,17 +160,20 @@ class ToolCallDeadlineMiddleware(Middleware):
     async def on_call_tool(self, context: MiddlewareContext, call_next: CallNext) -> Any:
         seconds = float(get_config().cortex_call_deadline_s)
         tokens = arm_call_deadline(seconds)
+        recovery: dict[str, Any] = {}
+        recovery_token = _call_recovery.set(recovery)
         try:
             try:
                 return await asyncio.wait_for(call_next(context), timeout=seconds)
             except TimeoutError:
-                return _error_result(upstream_timeout_message(_tool_name(context), seconds))
+                return _error_result(upstream_timeout_message(_tool_name(context), seconds), recovery)
             except (PAPIDeadlineError, ToolError) as exc:
                 detail = timeout_detail(exc)
                 if detail is None:
                     if isinstance(exc, ToolError):
                         raise
                     detail = upstream_timeout_message(_tool_name(context), seconds)
-                return _error_result(detail)
+                return _error_result(detail, recovery)
         finally:
+            _call_recovery.reset(recovery_token)
             reset_call_deadline(tokens)
