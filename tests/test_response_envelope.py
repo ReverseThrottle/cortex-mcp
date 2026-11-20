@@ -349,6 +349,63 @@ def test_byte_cap_shortens_a_page():
     assert len(encoded) <= 8000
 
 
+def _rowless_results_map(case_count: int = 40) -> dict:
+    """update_case's per-case results map: no reply/data row list anywhere."""
+    return {
+        "results": {
+            str(case_id): {"reply": {"notes": f"case {case_id} resolved ✓ " + "x" * 200, "status": "Resolved"}}
+            for case_id in range(case_count)
+        }
+    }
+
+
+def test_rowless_over_budget_payload_is_capped_to_a_preview():
+    payload = _rowless_results_map()
+    max_bytes = 4000
+    raw = json.dumps(payload, indent=2, ensure_ascii=False)
+    assert len(raw.encode("utf-8")) > max_bytes
+
+    enveloped = apply_response_envelope(payload, max_bytes=max_bytes)
+
+    assert set(enveloped) == {"truncated", "returned", "preview"}
+    assert enveloped["truncated"] is True
+    assert enveloped["returned"] == 0
+    preview = enveloped["preview"]
+    assert preview
+    assert raw.startswith(preview)
+    assert len(preview) < len(raw)
+    encoded = json.dumps(enveloped, indent=2, ensure_ascii=False).encode("utf-8")
+    assert len(encoded) <= max_bytes
+
+
+def test_rowless_under_budget_payload_is_returned_unchanged():
+    payload = _rowless_results_map(case_count=2)
+
+    enveloped = apply_response_envelope(payload, max_bytes=4000)
+
+    assert enveloped == payload
+    assert "truncated" not in enveloped
+    assert "returned" not in enveloped
+    assert "preview" not in enveloped
+
+
+def test_fastmcp_wrapped_rowless_results_map_is_preview_truncated():
+    # update_case returns create_response(data={"results": {...}}); FastMCP
+    # stores that -> str text under "result" before the envelope middleware runs.
+    text = create_response(data=_rowless_results_map())
+    enveloped = apply_response_envelope({"result": text}, max_bytes=4000)
+
+    assert set(enveloped) == {"truncated", "returned", "preview"}
+    assert enveloped["truncated"] is True
+    assert enveloped["returned"] == 0
+    raw = json.dumps(json.loads(text), indent=2, ensure_ascii=False)
+    assert enveloped["preview"]
+    assert raw.startswith(enveloped["preview"])
+    assert len(enveloped["preview"]) < len(raw)
+    encoded = json.dumps(enveloped, indent=2, ensure_ascii=False).encode("utf-8")
+    assert len(encoded) <= 4000
+
+
 @pytest.mark.asyncio
 async def test_middleware_slices_a_controls_page_from_the_tool_arguments():
     rows = [{"id": index} for index in range(30)]
