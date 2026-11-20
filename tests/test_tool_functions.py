@@ -284,6 +284,43 @@ async def test_isolate_and_unisolate_post_endpoint_filters(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_unisolate_endpoint_passes_the_audit_comment_through(monkeypatch):
+    # Issue #73: the comment is the audit justification for restoring network
+    # access. Lock exact passthrough and absence when omitted, mirroring the
+    # isolate expectations in test_isolate_and_unisolate_post_endpoint_filters.
+    restore = _install(monkeypatch, endpoint_actions_module, RecordingFetcher({"reply": "restored"}))
+    restored = _loaded(await unisolate_endpoint(None, ["ep-1"], comment="cleared"))
+    assert restored["success"] == "true"
+    assert restore.calls[0][0] == "endpoints/unisolate/"
+    request_data = restore.calls[0][1]["data"]["request_data"]
+    assert request_data["filters"] == [{"field": "endpoint_id_list", "operator": "in", "value": ["ep-1"]}]
+    assert request_data["comment"] == "cleared"
+
+    bare = _install(monkeypatch, endpoint_actions_module, RecordingFetcher({"reply": "restored"}))
+    assert _loaded(await unisolate_endpoint(None, ["ep-1"]))["success"] == "true"
+    assert "comment" not in bare.calls[0][1]["data"]["request_data"]
+
+
+@pytest.mark.asyncio
+async def test_unisolate_endpoint_papi_error_returns_tool_error(monkeypatch):
+    _install(monkeypatch, endpoint_actions_module, RecordingFetcher(PAPIConnectionError("offline")))
+    error = _loaded(await unisolate_endpoint(None, ["ep-1"]))
+    assert error["success"] == "false"
+    assert "offline" in error["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", [isolate_endpoint, unisolate_endpoint])
+async def test_endpoint_writes_return_tool_error_on_unexpected_exception(monkeypatch, tool):
+    # Issue #73: a non-PAPI exception must hit the generic except branch and
+    # still return the success="false" tool-error contract, not propagate.
+    _install(monkeypatch, endpoint_actions_module, RecordingFetcher(RuntimeError("boom")))
+    error = _loaded(await tool(None, ["ep-1"]))
+    assert error["success"] == "false"
+    assert "boom" in error["error"]
+
+
+@pytest.mark.asyncio
 async def test_endpoint_and_case_writes_reject_an_empty_target_list(monkeypatch):
     endpoints = _install(monkeypatch, endpoint_actions_module, RecordingFetcher())
     for tool in (isolate_endpoint, unisolate_endpoint):
