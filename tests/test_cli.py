@@ -1,16 +1,20 @@
 import argparse
 import io
+import json
 import os
 import stat
 import sys
 import zipfile
+from pathlib import Path
 
+import httpx2 as httpx
 import pytest
 
 import cli
 import main
 from config.config import reload_config
 from entities.exceptions import PAPIAuthenticationError
+from pkg.client import PAPIClient
 
 _ENV_KEYS = (
     "CORTEX_MCP_PAPI_AUTH_ID",
@@ -333,6 +337,52 @@ async def test_update_reports_papi_download_errors(isolated_env, monkeypatch, tm
     assert "Failed to download content from API: Authentication failed" in caplog.text
     assert "HTTP Status Code: 401" in caplog.text
     assert "Unexpected error" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_download_update_package_success_writes_the_streamed_zip(isolated_env, monkeypatch):
+    """Issue #62: the real download success path — Fetcher.stream through a
+    mocked transport — must POST is_update to {url}/public_api/v1/mcp/download/
+    and save the streamed body to a temp zip."""
+    monkeypatch.setenv("CORTEX_MCP_PAPI_URL", "https://tenant.example")
+    monkeypatch.setenv("CORTEX_MCP_PAPI_AUTH_HEADER", "settings-secret")
+    monkeypatch.setenv("CORTEX_MCP_PAPI_AUTH_ID", "99")
+    cli.config = reload_config()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("remote_tools/tool.yml", "name: demo\n")
+    payload = buffer.getvalue()
+
+    captured = {}
+
+    def handler(request: httpx.Request):
+        captured["method"] = request.method
+        captured["url"] = str(request.url)
+        captured["content"] = request.content
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, content=payload, headers={"Content-Type": "application/zip"})
+
+    original_init = PAPIClient.__init__
+
+    def init_with_transport(self, *args, **kwargs):
+        kwargs.setdefault("transport", httpx.MockTransport(handler))
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(PAPIClient, "__init__", init_with_transport)
+
+    zip_path = await cli.download_update_package()
+    try:
+        assert zip_path.endswith(".zip")
+        assert Path(zip_path).read_bytes() == payload
+        assert captured["method"] == "POST"
+        # get_papi_url adds the api- subdomain; the endpoint keeps its prefix.
+        assert captured["url"] == "https://api-tenant.example/public_api/v1/mcp/download/"
+        assert json.loads(captured["content"]) == {"request_data": {"is_update": True}}
+        assert captured["headers"]["authorization"] == "settings-secret"
+        assert captured["headers"]["x-xdr-auth-id"] == "99"
+    finally:
+        os.unlink(zip_path)
 
 
 def _write_update_zip(tmp_path, members: dict[str, str]) -> str:
