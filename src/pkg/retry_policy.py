@@ -58,7 +58,7 @@ _HANDWRITTEN_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/public_api/v1/scripts/get"): "post_scripts_get",
     ("POST", "/public_api/v1/xql/get_query_results_stream"): "post_xql_get_query_results_stream",
     ("POST", "/public_api/v1/xql/start_xql_query"): "run_xql_query",
-    ("POST", "/public_api/v1/case/update"): "update_case",
+    ("POST", "/public_api/v1/case/update/{case_id}"): "update_case",
     ("POST", "/public_api/v1/endpoints/isolate"): "isolate_endpoint",
     ("POST", "/public_api/v1/endpoints/unisolate"): "unisolate_endpoint",
     ("POST", "/public_api/v1/scripts/insert"): "insert_script",

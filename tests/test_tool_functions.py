@@ -3,10 +3,12 @@ import json
 import zipfile
 from io import BytesIO
 
+import jsonschema
 import pytest
 
 from config.config import get_config
 from entities.exceptions import PAPIAuthenticationError, PAPIConnectionError
+from pkg.util import bundle_openapi_from_folders
 from usecase.builtin_components import cases as cases_module
 from usecase.builtin_components import content_uploads as uploads_module
 from usecase.builtin_components import issues as issues_module
@@ -118,11 +120,6 @@ async def test_get_issues_sends_the_search_path(monkeypatch):
 @pytest.mark.asyncio
 async def test_update_case_validates_before_posting(monkeypatch):
     idle = _install(monkeypatch, case_actions_module, RecordingFetcher())
-    invalid = _loaded(await update_case(None, [1], status="nope"))
-    assert invalid["success"] == "false"
-    assert "Invalid status" in invalid["error"]
-    assert idle.calls == []
-
     missing = _loaded(await update_case(None, [1]))
     assert missing["success"] == "false"
     assert "At least one" in missing["error"]
@@ -130,34 +127,136 @@ async def test_update_case_validates_before_posting(monkeypatch):
     invalid_severity = _loaded(await update_case(None, [1], severity="urgent"))
     assert invalid_severity["success"] == "false"
     assert "Invalid severity" in invalid_severity["error"]
+
+    no_reason = _loaded(await update_case(None, [1], status="Resolved"))
+    assert no_reason["success"] == "false"
+    assert "resolve_reason is required" in no_reason["error"]
+
+    stray_reason = _loaded(await update_case(None, [1], resolve_reason="Resolved - Other"))
+    assert stray_reason["success"] == "false"
+    assert "only applies when status is 'Resolved'" in stray_reason["error"]
+
+    stray_comment = _loaded(await update_case(None, [1], resolve_comment="done"))
+    assert stray_comment["success"] == "false"
+    assert "only applies when status is 'Resolved'" in stray_comment["error"]
     assert idle.calls == []
 
-    fetcher = _install(monkeypatch, case_actions_module, RecordingFetcher({"reply": {"updated": True}}))
+
+@pytest.mark.asyncio
+async def test_update_case_posts_per_case_builtin_fields(monkeypatch):
+    fetcher = _install(
+        monkeypatch,
+        case_actions_module,
+        RecordingFetcher({"reply": {"updated": True}}, {"reply": {"updated": True}}),
+    )
     updated = _loaded(
         await update_case(
             None,
             [4, 5],
-            comment="note",
-            status="under_investigation",
+            notes="note",
+            status="In Progress",
             severity="high",
-            assigned_user_mail="analyst@example.com",
+            assigned_user="analyst@example.com",
         )
     )
     assert updated["success"] == "true"
-    request_data = fetcher.calls[0][1]["data"]["request_data"]
-    assert fetcher.calls[0][0] == "case/update/"
-    assert request_data["case_id_list"] == [4, 5]
-    assert request_data["update_data"] == {
-        "comment": "note",
-        "status": "under_investigation",
-        "severity": "high",
-        "assigned_user_mail": "analyst@example.com",
-    }
+    assert [path for path, _ in fetcher.calls] == ["case/update/4", "case/update/5"]
+    for _, kwargs in fetcher.calls:
+        request_data = kwargs["data"]["request_data"]
+        assert set(request_data) == {"update_data"}
+        assert request_data["update_data"] == {
+            "notes": "note",
+            "status_progress": "In Progress",
+            "user_severity": "high",
+            "assigned_user": "analyst@example.com",
+        }
+    assert updated["results"] == {"4": {"reply": {"updated": True}}, "5": {"reply": {"updated": True}}}
 
     _install(monkeypatch, case_actions_module, RecordingFetcher(PAPIAuthenticationError("denied")))
-    error = _loaded(await update_case(None, [4], comment="note"))
+    error = _loaded(await update_case(None, [4], notes="note"))
     assert error["success"] == "false"
-    assert "denied" in error["error"]
+    assert "denied" in error["results"]["4"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_update_case_resolving_custom_status_and_clearing_severity(monkeypatch):
+    resolving = _install(monkeypatch, case_actions_module, RecordingFetcher({"reply": True}))
+    payload = _loaded(
+        await update_case(None, [7], status="resolved", resolve_reason="Resolved - Other", resolve_comment="fixed")
+    )
+    assert payload["success"] == "true"
+    assert resolving.calls[0][0] == "case/update/7"
+    assert resolving.calls[0][1]["data"]["request_data"]["update_data"] == {
+        "status_progress": "resolved",
+        "resolve_reason": "Resolved - Other",
+        "resolve_comment": "fixed",
+    }
+
+    # status_progress is case-insensitive with tenant-custom values: the client
+    # must not whitelist statuses (the API lists valid options on error).
+    custom = _install(monkeypatch, case_actions_module, RecordingFetcher({"reply": True}))
+    result = _loaded(await update_case(None, [8], status="Waiting on Customer"))
+    assert result["success"] == "true"
+    assert custom.calls[0][1]["data"]["request_data"]["update_data"] == {"status_progress": "Waiting on Customer"}
+
+    # An empty string clears the severity override (spec user_severity semantics).
+    cleared = _install(monkeypatch, case_actions_module, RecordingFetcher({"reply": True}))
+    result = _loaded(await update_case(None, [9], severity=""))
+    assert result["success"] == "true"
+    assert cleared.calls[0][1]["data"]["request_data"]["update_data"] == {"user_severity": ""}
+
+
+@pytest.mark.asyncio
+async def test_update_case_reports_per_case_outcomes_on_partial_failure(monkeypatch):
+    fetcher = _install(
+        monkeypatch, case_actions_module, RecordingFetcher({"reply": "ok"}, PAPIAuthenticationError("denied"))
+    )
+    result = _loaded(await update_case(None, [4, 5], notes="note"))
+    assert result["success"] == "false"
+    assert result["results"]["4"] == {"reply": "ok"}
+    assert "denied" in result["results"]["5"]["error"]
+    assert len(fetcher.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_update_case_payload_conforms_to_vendor_spec(monkeypatch):
+    # Issue #66: update_data allows additionalProperties (custom fields), so a
+    # wrong built-in key is silently accepted as a custom field and the intended
+    # update never applies. Pin the outgoing path and every wire key to the
+    # shipped spec's built-in properties.
+    spec = bundle_openapi_from_folders()
+    operation = spec["paths"]["/public_api/v1/case/update/{case_id}"]["post"]
+    schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    request_props = schema["properties"]["request_data"]["properties"]
+    assert set(request_props) == {"update_data"}  # no case_id_list anywhere in the spec
+    builtin_fields = set(request_props["update_data"]["properties"])
+
+    fetcher = _install(monkeypatch, case_actions_module, RecordingFetcher({"reply": True}, {"reply": True}))
+    await update_case(
+        None,
+        [4, 5],
+        notes="n",
+        status="Resolved",
+        resolve_reason="Resolved - Other",
+        resolve_comment="c",
+        severity="critical",
+        assigned_user="analyst@example.com",
+    )
+    assert len(fetcher.calls) == 2
+    for case_id, (path, kwargs) in zip([4, 5], fetcher.calls, strict=True):
+        assert path == f"case/update/{case_id}"
+        payload = kwargs["data"]
+        jsonschema.validate(payload, schema)
+        update_data = payload["request_data"]["update_data"]
+        assert set(update_data) <= builtin_fields
+        assert set(update_data) == {
+            "notes",
+            "status_progress",
+            "resolve_reason",
+            "resolve_comment",
+            "user_severity",
+            "assigned_user",
+        }
 
 
 @pytest.mark.asyncio
@@ -194,7 +293,7 @@ async def test_endpoint_and_case_writes_reject_an_empty_target_list(monkeypatch)
     assert endpoints.calls == []
 
     cases = _install(monkeypatch, case_actions_module, RecordingFetcher())
-    rejected = _loaded(await update_case(None, [], comment="note"))
+    rejected = _loaded(await update_case(None, [], notes="note"))
     assert rejected["success"] == "false"
     assert rejected["error"] == "case_ids must contain at least one case ID."
     assert cases.calls == []

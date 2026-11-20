@@ -37,7 +37,7 @@ def test_catalog_routes_use_the_spec_classification(method, path, kind):
     [
         ("POST", "/public_api/v1/endpoints/isolate/", "isolate_endpoint"),
         ("POST", "/public_api/v1/endpoints/unisolate/", "unisolate_endpoint"),
-        ("POST", "/public_api/v1/case/update/", "update_case"),
+        ("POST", "/public_api/v1/case/update/4", "update_case"),
         ("POST", "/public_api/v1/case/search/", "get_cases"),
         ("POST", "/public_api/v1/issue/search/", "get_issues"),
         ("POST", "/public_api/v1/xql/start_xql_query/", "run_xql_query"),

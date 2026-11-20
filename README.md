@@ -290,7 +290,7 @@ The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpans
 | Tool | Description |
 |---|---|
 | `get_cases` | Search cases (POST /public_api/v1/case/search). Read-only. |
-| `update_case` | Update status, assignment, severity, or comments on a list of cases. Changes tenant state. |
+| `update_case` | Update status, assignment, severity, or notes on a list of cases, one request per case (POST /public_api/v1/case/update/{case_id}). Changes tenant state. |
 | `get_issues` | Search issues (POST /public_api/v1/issue/search). Read-only. |
 | `get_filtered_endpoints` | Filtered endpoint list (POST /public_api/v1/endpoints/get_endpoint). Read-only. |
 | `isolate_endpoint` | Isolate endpoints from the network. Changes tenant state. |
@@ -323,7 +323,7 @@ These 10 tools call the broker appliance, not `/public_api/v1/brokers/` on the t
 
 ### Public API catalog (506 additional tools)
 
-506 tools come from the public API reference, in addition to the helpers and Broker VM tools above. With write, secret, and isolate flags off, the server registers 255 tools. With only write tools enabled, it registers 523. With only the write and isolate flags enabled, it registers 525. The list below names every tool (530) registered when write, secret, and isolate tools are all enabled. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. The documented per-case update is separate from `update_case`.
+506 tools come from the public API reference, in addition to the helpers and Broker VM tools above. With write, secret, and isolate flags off, the server registers 255 tools. With only write tools enabled, it registers 523. With only the write and isolate flags enabled, it registers 525. The list below names every tool (530) registered when write, secret, and isolate tools are all enabled. `get_endpoints` (all endpoints) is separate from `get_filtered_endpoints`. `update_case` loops over the same per-case update endpoint that `post_case_update_by_case_id` exposes.
 
 <details>
 <summary>All tool names</summary>
