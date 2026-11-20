@@ -220,7 +220,7 @@ async def test_retry_keeps_per_request_timeout(monkeypatch):
         ("POST", "/public_api/v1/endpoints/unisolate/"),  # handwritten action
         ("POST", "/public_api/v1/scripts/run_script"),  # catalog write
         ("POST", "/public_api/v1/api_keys/generate"),  # catalog write
-        ("POST", "/public_api/v1/case/update/"),  # handwritten write
+        ("POST", "/public_api/v1/case/update/4"),  # handwritten write, per-case path parameter
         ("PUT", "/public_api/appsec/v1/policies/p-123"),  # catalog write, path parameter
         ("POST", "/public_api/v1/brokers/dev-1/applets/wec/wef_cert/"),  # catalog secret
         ("POST", "/public_api/v1/unknown/mutating_path"),  # unclassified POST: fail-safe
