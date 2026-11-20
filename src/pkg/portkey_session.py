@@ -7,8 +7,6 @@ id, defaults a missing ``protocolVersion``, and forwards ``tools/list`` and
 ``tools/call`` without an upstream session.
 """
 
-import asyncio
-import contextlib
 import hmac
 import json
 import math
@@ -27,9 +25,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
 
 _SESSION_HEADER = "mcp-session-id"
-_PROTOCOL_HEADER = "mcp-protocol-version"
 _INIT_METHODS = frozenset({"initialize", "session.initialize"})
-_DEFAULT_CLIENT_INFO = {"name": "mcp", "version": "0"}
 _MISSING_SESSION = "Bad Request: Missing session ID"
 _UNKNOWN_SESSION = "Not Found: Invalid or expired session ID"
 _BODY_TOO_LARGE = "Request body too large"
@@ -107,77 +103,6 @@ def _json_object(payload: bytes) -> dict[str, Any] | None:
     return None
 
 
-def _prepare_initialize(scope: Scope, body: dict[str, Any]) -> tuple[Scope, bytes]:
-    """Rewrite Portkey's handshake into one the stateless handler can answer.
-
-    A ``2026-07-28`` protocol header would enter the modern handler, which
-    does not implement ``initialize``. The rewritten header stays on a
-    handshake revision so the upstream call remains stateless.
-    """
-    raw_params = body.get("params")
-    params: dict[str, Any] = dict(raw_params) if isinstance(raw_params, dict) else {}
-    header_version = _header(scope, _PROTOCOL_HEADER)
-    protocol = params.get("protocolVersion")
-    if not isinstance(protocol, str) or not protocol:
-        if header_version in HANDSHAKE_PROTOCOL_VERSIONS:
-            protocol = header_version
-        else:
-            protocol = LATEST_HANDSHAKE_VERSION
-        params["protocolVersion"] = protocol
-    if "capabilities" not in params:
-        params["capabilities"] = {}
-    if "clientInfo" not in params:
-        params["clientInfo"] = dict(_DEFAULT_CLIENT_INFO)
-    route_version = header_version if header_version in HANDSHAKE_PROTOCOL_VERSIONS else protocol
-    if route_version not in HANDSHAKE_PROTOCOL_VERSIONS:
-        route_version = LATEST_HANDSHAKE_VERSION
-    rewritten = {**body, "method": "initialize", "params": params}
-    payload = json.dumps(rewritten).encode()
-    forwarded = _replace_headers(
-        scope,
-        {
-            "content-length": str(len(payload)),
-            _PROTOCOL_HEADER: route_version,
-        },
-        drop=frozenset({_SESSION_HEADER, "mcp-method", "mcp-name"}),
-    )
-    return forwarded, payload
-
-
-def _response_messages(payload: bytes, headers: list[tuple[bytes, bytes]]) -> list[Any]:
-    content_type = ""
-    for key, value in headers:
-        if key.lower() == b"content-type":
-            content_type = value.decode("latin-1")
-            break
-    if "text/event-stream" in content_type:
-        messages: list[Any] = []
-        for line in payload.splitlines():
-            if not line.startswith(b"data:"):
-                continue
-            data = line[len(b"data:") :].strip()
-            if not data:
-                continue
-            try:
-                messages.append(json.loads(data))
-            except json.JSONDecodeError:
-                continue
-        return messages
-    parsed = _json_object(payload)
-    if parsed is None:
-        return []
-    return [parsed]
-
-
-def _initialize_succeeded(status: int, headers: list[tuple[bytes, bytes]], payload: bytes) -> bool:
-    if status != 200:
-        return False
-    for message in _response_messages(payload, headers):
-        if isinstance(message, dict) and "result" in message and "error" not in message:
-            return True
-    return False
-
-
 def _with_session(headers: list[tuple[bytes, bytes]], session_id: str) -> list[tuple[bytes, bytes]]:
     kept = [(key, value) for key, value in headers if key.lower() != _SESSION_HEADER.encode("latin-1")]
     kept.append((_SESSION_HEADER.encode("latin-1"), session_id.encode("ascii")))
@@ -199,49 +124,6 @@ async def _read_body(receive: Receive) -> bytes | None:
         size += len(chunk)
         if not message.get("more_body", False):
             return b"".join(chunks)
-
-
-async def _exchange(app: ASGIApp, scope: Scope, receive: Receive) -> tuple[int, list[tuple[bytes, bytes]], bytes]:
-    """Run the upstream app and return its completed response.
-
-    The body is captured when the upstream sends the terminal chunk. A
-    disconnect watcher still blocked on the client is cancelled after that,
-    so the handshake can be inspected before the client sees it.
-    """
-    start: Message | None = None
-    chunks: list[bytes] = []
-    finished = asyncio.Event()
-
-    async def capture(message: Message) -> None:
-        nonlocal start
-        if message["type"] == "http.response.start":
-            start = message
-            return
-        if message["type"] == "http.response.body":
-            chunk = _chunk(message)
-            if chunk:
-                chunks.append(chunk)
-            if not message.get("more_body", False):
-                finished.set()
-
-    async def run() -> None:
-        await app(scope, receive, capture)
-
-    task: asyncio.Task[None] = asyncio.create_task(run())
-    task.add_done_callback(lambda _completed: finished.set())
-    await finished.wait()
-    if not task.done():
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-    else:
-        await task
-    if start is None:
-        raise RuntimeError("upstream sent no response")
-    headers = start.get("headers", [])
-    if not isinstance(headers, list):
-        headers = []
-    return int(start["status"]), headers, b"".join(chunks)
 
 
 async def _send_response(send: Send, status: int, headers: list[tuple[bytes, bytes]], payload: bytes) -> None:
