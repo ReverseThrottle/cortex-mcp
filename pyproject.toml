@@ -12,7 +12,6 @@ packages = [
 python = ">=3.12,<4.0"
 fastapi = "^0.142.1"
 uvicorn = { version = "^0.38.0", extras = ["standard"] }
-types-requests = "^2.32.0.20250515"
 fastmcp = "^4.0.10"
 mcp = "^2.2.0"
 httpx2 = "^2.5.0"
