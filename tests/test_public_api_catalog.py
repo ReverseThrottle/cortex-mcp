@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-from pathlib import Path
 
 import httpx2 as httpx
 import pytest
@@ -13,10 +12,12 @@ from fastmcp.server.elicitation import AcceptedElicitation
 from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.server.providers.openapi.routing import MCPType
 from mcp.types import CallToolRequestParams
+from test_fetcher import _FakeContext
 
 from config.config import reload_config
 from entities.exceptions import PAPIResponseError
 from main import initialize_mcp_server, openapi_route_map
+from pkg.call_deadline import ToolCallDeadlineMiddleware
 from pkg.client import PAPIClient
 from pkg.setup_logging import configure_library_logging
 from pkg.tool_classification import SIDE_EFFECT_EXTENSION
@@ -544,14 +545,56 @@ def test_openapi_route_map_hides_non_read_catalog_tools(feature_flags):
 
     feature_flags(write=True, isolate=False, secret=True)
     assert openapi_route_map(_route("secret"), MCPType.TOOL) is None
-    text = Path(inspect.getsourcefile(initialize_mcp_server)).read_text()
-    assert "route_map_fn=openapi_route_map" in text
-    assert "cortex_timeout_s" in text
-    assert "ToolCallDeadlineMiddleware" in text
-    assert "from fastmcp.server.providers.openapi.routing import MCPType" in text
-    assert "stateless_http=True" in text
-    assert "host_origin_protection=True" in text
-    assert "FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER" not in text
+    # The former initialize_mcp_server source-text pins are behavioral now:
+    # server wiring in test_initialize_mcp_server_wires_the_catalog_guards,
+    # runner kwargs in test_main_lifecycle.py (issue #67).
+
+
+@pytest.mark.asyncio
+async def test_initialize_mcp_server_wires_the_catalog_guards(feature_flags, monkeypatch):
+    """Behavioral replacement for the initialize_mcp_server source-text pins (issue #72).
+
+    Asserts on the constructed server: the deadline middleware is installed,
+    the catalog client timeout follows CORTEX_MCP_TIMEOUT_S, and
+    route_map_fn=openapi_route_map really filters non-read catalog tools.
+    stateless_http / host_origin_protection are async_main runner kwargs,
+    guarded by test_main_lifecycle.py::test_http_startup_dispatches_stateless_kwargs.
+    """
+    feature_flags(write=False, isolate=False, secret=False)
+    # Runtime configuration: the experimental OpenAPI parser must not be in effect.
+    assert "FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER" not in os.environ
+
+    # A distinctive timeout proves the catalog client follows config rather
+    # than a hard-coded value (the default is 20.0).
+    previous_timeout = os.environ.get("CORTEX_MCP_TIMEOUT_S")
+    monkeypatch.setenv("CORTEX_MCP_TIMEOUT_S", "12.5")
+    reload_config()
+    captured_timeouts = []
+    original_init = PAPIClient.__init__
+
+    def spy_init(self, *args, **kwargs):
+        captured_timeouts.append(kwargs.get("timeout"))
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(PAPIClient, "__init__", spy_init)
+    try:
+        server = await initialize_mcp_server("dummy-key", "1", "example.invalid")
+    finally:
+        if previous_timeout is None:
+            monkeypatch.delenv("CORTEX_MCP_TIMEOUT_S", raising=False)
+        else:
+            monkeypatch.setenv("CORTEX_MCP_TIMEOUT_S", previous_timeout)
+        reload_config()
+
+    assert captured_timeouts == [12.5]
+    assert any(isinstance(middleware, ToolCallDeadlineMiddleware) for middleware in server.middleware)
+
+    names = {tool.name for tool in await server.list_tools()}
+    # With every flag off, the wired route map excludes non-read catalog tools
+    # while read catalog tools survive registration.
+    assert "post_endpoints_file_retrieval" not in names
+    assert names.isdisjoint(SECRET_CATALOG_TOOLS)
+    assert "get_assets" in names
 
 
 def _assert_not_read_only(tool) -> None:
@@ -671,11 +714,66 @@ def test_fastmcp_debug_logs_stay_quiet():
     assert logging.getLogger("fastmcp").level == logging.WARNING
 
 
-def test_fetcher_does_not_log_the_api_key_id():
-    text = Path(inspect.getsourcefile(get_fetcher)).read_text()
-    function_text = text.split("def get_fetcher", 1)[1]
-    assert 'logger.info("Creating a new Cortex API fetcher")' in function_text
-    assert "api_key_id" not in function_text
+_FETCHER_SENTINEL_ENV = {
+    "CORTEX_MCP_PAPI_URL": "https://sentinel-tenant.example",
+    "CORTEX_MCP_PAPI_AUTH_HEADER": "sentinel-settings-key-9f3c1a",
+    "CORTEX_MCP_PAPI_AUTH_ID": "sentinel-settings-id-77",
+    "CORTEX_MCP_PAPI_KEY_TYPE": "standard",
+}
+
+
+@pytest.fixture
+def sentinel_papi_env():
+    """Sentinel settings credentials; env and config restored afterwards."""
+    previous = {key: os.environ.get(key) for key in _FETCHER_SENTINEL_ENV}
+    os.environ.update(_FETCHER_SENTINEL_ENV)
+    reload_config()
+    yield _FETCHER_SENTINEL_ENV
+    for key, value in previous.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    reload_config()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("credential_source", ["lifespan", "settings"])
+async def test_get_fetcher_does_not_log_credentials(sentinel_papi_env, caplog, credential_source):
+    """Behavioral replacement for the get_fetcher source-text pin (issue #72).
+
+    Drives the real get_fetcher with sentinel credentials from both resolution
+    paths and asserts no sentinel reaches any log record at DEBUG level. The
+    old negative substring pin could not catch a leak: the live code holds the
+    credentials as api_key / xdr_id, never the literal api_key_id.
+    """
+    lifespan_key = "sentinel-lifespan-key-4b7e2d"
+    lifespan_id = "sentinel-lifespan-id-42"
+    headers = {"Authorization": lifespan_key, "X-XDR-AUTH-ID": lifespan_id} if credential_source == "lifespan" else {}
+    ctx = _FakeContext(headers)
+
+    with caplog.at_level(logging.DEBUG):
+        fetcher = await get_fetcher(ctx)
+
+    if credential_source == "lifespan":
+        assert fetcher.api_key == lifespan_key
+        assert fetcher.api_key_id == lifespan_id
+    else:
+        assert fetcher.api_key == sentinel_papi_env["CORTEX_MCP_PAPI_AUTH_HEADER"]
+        assert fetcher.api_key_id == sentinel_papi_env["CORTEX_MCP_PAPI_AUTH_ID"]
+
+    # The creation log really ran, so the leak assertions below are not vacuous.
+    assert any(record.getMessage() == "Creating a new Cortex API fetcher" for record in caplog.records)
+    sentinels = (
+        lifespan_key,
+        lifespan_id,
+        sentinel_papi_env["CORTEX_MCP_PAPI_AUTH_HEADER"],
+        sentinel_papi_env["CORTEX_MCP_PAPI_AUTH_ID"],
+    )
+    for record in caplog.records:
+        message = record.getMessage()
+        for sentinel in sentinels:
+            assert sentinel not in message, f"credential leaked into a log record from {record.name}"
 
 
 @pytest.mark.asyncio
