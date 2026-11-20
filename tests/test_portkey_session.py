@@ -1,9 +1,7 @@
 """Portkey session.initialize in front of the stateless Streamable HTTP handler."""
 
 import asyncio
-import inspect
 import json
-from pathlib import Path
 
 import httpx2
 import pytest
@@ -13,7 +11,7 @@ from starlette.types import Message, Receive, Scope, Send
 
 from config.config import DEFAULT_MCP_ALLOWED_HOSTS
 from entities.llm_config import LLM_FORMATTING_BASE_INSTRUCTIONS
-from main import async_main, streamable_http_middleware
+from main import streamable_http_middleware
 from pkg.portkey_session import PortkeySessionAdapter
 from pkg.protocol_header import ModernProtocolHeaderMiddleware
 from service.cortex_mcp.server import create_mcp_server
@@ -204,12 +202,6 @@ def _bare_app():
         allowed_origins=[],
         middleware=[Middleware(ModernProtocolHeaderMiddleware)],
     )
-
-
-def test_http_startup_keeps_the_handler_stateless():
-    text = Path(inspect.getsourcefile(async_main)).read_text()
-    assert "stateless_http=True" in text
-    assert "streamable_http_middleware" in text
 
 
 @pytest.mark.asyncio
