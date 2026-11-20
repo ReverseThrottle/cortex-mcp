@@ -1,5 +1,6 @@
 import argparse
 import io
+import logging
 import os
 import stat
 import sys
@@ -522,3 +523,30 @@ def test_main_cli_update_success_exits_zero(isolated_env, monkeypatch, tmp_path)
     # Returning without SystemExit is the exit-0 contract of main_cli.
     cli.main_cli()
     assert (target / "new.yml").read_text() == "new"
+
+
+@pytest.fixture
+def restored_root_logger():
+    """main_cli calls setup_logging, which mutates the root logger; undo it."""
+    root = logging.getLogger()
+    level, handlers = root.level, root.handlers[:]
+    yield
+    root.setLevel(level)
+    root.handlers[:] = handlers
+
+
+@pytest.mark.parametrize("level", ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+def test_main_cli_version_prints_at_every_log_level(isolated_env, monkeypatch, capsys, restored_root_logger, level):
+    """Regression for #60: version output must not be gated by LOG_LEVEL.
+
+    Drives the real main_cli path (setup_logging -> dispatch) at every
+    documented level; WARNING and above used to swallow the output entirely
+    while still exiting 0. The version goes to stdout, not the log stream.
+    """
+    os.environ["LOG_LEVEL"] = level
+    cli.config = reload_config()
+    monkeypatch.setattr(sys, "argv", ["mcp_cli", "version"])
+    # No SystemExit: a successful version command keeps exit code 0.
+    cli.main_cli()
+    captured = capsys.readouterr()
+    assert f"[Python] Cortex MCP Server Version: {cli.__version__}" in captured.out

@@ -457,7 +457,10 @@ async def update_tools(args: argparse.Namespace):
 
 
 async def display_version(_: argparse.Namespace):
-    logger.info(f"[Python] Cortex MCP Server Version: {__version__}")
+    # The version is the command's output, not a log record: print to stdout
+    # so the configured LOG_LEVEL (root logger, set by setup_logging before
+    # dispatch) can never suppress it (#60). Log records stay on stderr.
+    print(f"[Python] Cortex MCP Server Version: {__version__}")
 
 
 def main_cli():
