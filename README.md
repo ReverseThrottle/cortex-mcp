@@ -83,7 +83,7 @@ The server acts as a thin bridge: it translates MCP tool calls into authenticate
 
 ### Option 1: Docker (recommended)
 
-Published images are `ghcr.io/reversethrottle/cortex-mcp:<tag>` and `ghcr.io/reversethrottle/cortex-mcp:latest`. A version tag push (`v1.2.3` or `1.2.3`) publishes that tag. Publishing a GitHub release also publishes `latest`. The workflow logs in to GHCR with the built-in `GITHUB_TOKEN`.
+Published images are `ghcr.io/reversethrottle/cortex-mcp:<tag>` and `ghcr.io/reversethrottle/cortex-mcp:latest`. A version tag push (`v1.2.3` or `1.2.3`) publishes that tag. Publishing a GitHub release publishes both the release tag and `latest`. The workflow logs in to GHCR with the built-in `GITHUB_TOKEN`.
 
 ```bash
 # 1. Create your env file (copy .env.example from the repo)
