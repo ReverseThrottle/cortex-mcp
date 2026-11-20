@@ -4,12 +4,24 @@ import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools import InputRequiredToolResult, ToolResult
-from mcp.types import CallToolRequestParams, InputRequiredResult
+from mcp.types import (
+    AudioContent,
+    CallToolRequestParams,
+    EmbeddedResource,
+    ImageContent,
+    InputRequiredResult,
+    TextContent,
+    TextResourceContents,
+)
 
 from pkg.response_envelope import (
     ResponseEnvelopeMiddleware,
+    _bounds,
+    _fit_count,
     apply_response_envelope,
     ensure_formatting_metadata,
+    envelope_tool_result,
+    paging_from_arguments,
 )
 from pkg.util import create_response
 from usecase.base_module import BaseModule
@@ -486,3 +498,142 @@ def test_named_reply_list_longer_than_the_window_is_a_corpus():
     assert enveloped["truncated"] is True
     assert enveloped["returned"] == 1
     assert enveloped["total"] == 150
+
+
+# --- Edge contracts deferred by #74's scope note (issue #78). ---
+# Each test asserts observed output, locking a reachable branch that had zero
+# coverage. Defensive/unreachable lines (167, 174, 182, 240, 422) are out of scope.
+
+
+def test_fastmcp_wrapped_json_array_string_stays_wrapped():
+    # A JSON *array* string under "result" is not an object envelope: it stays
+    # wrapped rather than being parsed into data/total.
+    enveloped = apply_response_envelope({"result": "[1, 2]"})
+    assert enveloped == {"result": "[1, 2]"}
+    assert "data" not in enveloped
+    assert "total" not in enveloped
+
+
+def test_inverted_search_window_clamps_to_an_empty_page():
+    rows = [{"id": index} for index in range(150)]
+    enveloped = apply_response_envelope(rows, search_from=50, search_to=10)
+    assert enveloped["data"] == []
+    assert enveloped["total"] == 150
+    assert enveloped["returned"] == 0
+    assert enveloped["truncated"] is True
+
+
+def test_bounds_clamp_an_inverted_window_to_zero_width():
+    # The clamp's observable contract is the bounds pair itself: end becomes
+    # start, so the window has zero width rather than a negative one.
+    assert _bounds(50, 10) == (50, 50)
+    assert _bounds(0, -5) == (0, 0)
+    assert _bounds(-3, None) == (0, 100)
+    assert _bounds(None, None) == (0, 100)
+
+
+def test_paging_rejects_non_integer_and_boolean_bounds():
+    assert paging_from_arguments({"search_from": "10", "search_to": True}) == (None, None)
+    assert paging_from_arguments({"search_from": 1.5, "search_to": None}) == (None, None)
+    assert paging_from_arguments({"search_from": 3, "search_to": 9}) == (3, 9)
+
+
+def test_paging_from_non_dict_arguments_is_empty():
+    # Argument-less tools reach the middleware with arguments=None.
+    for arguments in (None, "search_from=1", [], 5, True):
+        assert paging_from_arguments(arguments) == (None, None)
+
+
+def test_paging_falls_back_to_top_level_bounds():
+    assert paging_from_arguments({"request_data": {"other": 1}, "search_from": 5, "search_to": 9}) == (5, 9)
+    assert paging_from_arguments({"request_data": {"search_from": "bad"}, "search_from": 7}) == (7, None)
+    assert paging_from_arguments({"request_data": {"search_to": True}, "search_to": 9}) == (None, 9)
+    # Valid request_data bounds still win over the top-level pair.
+    assert paging_from_arguments(
+        {"request_data": {"search_from": 1, "search_to": 2}, "search_from": 5, "search_to": 9}
+    ) == (1, 2)
+
+
+@pytest.mark.asyncio
+async def test_middleware_uses_top_level_bounds_when_request_data_lacks_them():
+    rows = [{"id": index} for index in range(30)]
+
+    async def call_next(context):
+        return ToolResult(structured_content={"reply": {"data": rows, "result_count": len(rows)}})
+
+    result = await ResponseEnvelopeMiddleware().on_call_tool(
+        _context({"request_data": {"other": 1}, "search_from": 0, "search_to": 1}),
+        call_next,
+    )
+    parsed = json.loads(result.content[0].text)
+    assert parsed["reply"]["data"] == [{"id": 0}]
+    assert parsed["reply"]["result_count"] == 30
+    assert parsed["returned"] == 1
+    assert parsed["total"] == 30
+
+
+def test_non_positive_max_bytes_disables_the_cap():
+    # MCP_MAX_RESPONSE_BYTES is an unbounded int field (src/config/config.py:49),
+    # so 0 / negative are reachable configurations that turn the cap off.
+    rows = [{"id": index} for index in range(500)]
+    for limit in (0, -1):
+        enveloped = apply_response_envelope(rows, max_bytes=limit)
+        assert enveloped["data"] == rows
+        assert enveloped["total"] == 500
+        assert "truncated" not in enveloped
+        assert "returned" not in enveloped
+
+
+def test_scalar_json_values_pass_through_untouched():
+    assert apply_response_envelope(42) == 42
+    assert apply_response_envelope(3.5) == 3.5
+    assert apply_response_envelope(True) is True
+    assert apply_response_envelope(None) is None
+
+
+def test_scalar_json_text_block_keeps_text_and_no_structured_object():
+    for text in ("42", "true", "null", "3.5"):
+        result = envelope_tool_result(ToolResult(content=[TextContent(type="text", text=text)]))
+        assert result.content[0].text == text
+        assert result.structured_content is None
+        assert result.is_error is False
+
+
+def test_non_text_content_blocks_pass_through_untouched():
+    image = ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png")
+    audio = AudioContent(type="audio", data="YXVkaW8=", mime_type="audio/wav")
+    resource = EmbeddedResource(
+        type="resource",
+        resource=TextResourceContents(uri="file:///note.txt", text="hi", mime_type="text/plain"),
+    )
+    text = TextContent(type="text", text=json.dumps({"reply": {"observation_time": 10}}))
+
+    result = envelope_tool_result(ToolResult(content=[text, image, audio, resource]))
+
+    assert len(result.content) == 4
+    # Identity proves the blocks are passed through byte-for-byte, not rebuilt.
+    assert result.content[1] is image
+    assert result.content[2] is audio
+    assert result.content[3] is resource
+    assert json.loads(result.content[0].text)["reply"]["observation_time"] == 10
+
+
+def test_multi_block_success_false_escalates_to_error_without_structured_content():
+    ok = TextContent(type="text", text=json.dumps({"success": "true", "reply": []}))
+    bad = TextContent(type="text", text=json.dumps({"success": "false", "error": "nope"}))
+
+    result = envelope_tool_result(ToolResult(content=[ok, bad]))
+    assert result.is_error is True
+    assert result.structured_content is None
+    assert json.loads(result.content[1].text)["success"] == "false"
+
+    first = TextContent(type="text", text=json.dumps({"success": "true", "reply": []}))
+    second = TextContent(type="text", text=json.dumps({"success": "true", "reply": []}))
+    both_ok = envelope_tool_result(ToolResult(content=[first, second]))
+    assert both_ok.is_error is False
+    assert both_ok.structured_content is None
+
+
+def test_fit_count_with_zero_max_count_returns_zero():
+    # Optional line-180 helper guard: a zero-row budget fits nothing.
+    assert _fit_count(lambda count: {"rows": list(range(count))}, 0, 1000) == 0

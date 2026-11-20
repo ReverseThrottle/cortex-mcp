@@ -202,6 +202,21 @@ def test_opt_in_restores_inline_formatting_on_envelopes(inline_formatting):
     assert enveloped["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
 
 
+def test_non_dict_metadata_is_preserved_when_inline_instructions_are_on(inline_formatting):
+    # Issue #78 line 46: with the opt-in on, a non-dict _metadata a tool set is
+    # left exactly as the tool set it ("Any other existing _metadata value stays").
+    inline_formatting(inline=True)
+    for existing in ("tool-set-string", ["keep"], 3, None):
+        enveloped = apply_response_envelope({"reply": {"observation_time": 10}, "_metadata": existing})
+        assert enveloped["_metadata"] == existing
+        assert enveloped["reply"]["observation_time"] == 10
+
+    # A dict _metadata missing the key still gains the guidance alongside its fields.
+    gained = apply_response_envelope({"reply": [], "_metadata": {"source": "get_issues"}})
+    assert gained["_metadata"]["formatting_instructions"] == LLM_FORMATTING_BASE_INSTRUCTIONS
+    assert gained["_metadata"]["source"] == "get_issues"
+
+
 @pytest.mark.asyncio
 async def test_opt_in_restores_inline_formatting_on_tool_calls(inline_formatting):
     inline_formatting(inline=True, confirm=True)
