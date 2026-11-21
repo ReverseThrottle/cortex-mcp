@@ -13,7 +13,11 @@ from Settings itself, so changing the MCP_PORT default without updating
 fly.toml fails here instead of at deploy time.
 """
 
+import shlex
+import sys
 from pathlib import Path
+
+import pytest
 
 from config.config import Settings
 
@@ -32,16 +36,58 @@ def _fly_config() -> dict:
         return tomllib.load(fh)
 
 
+def _logical_lines(text: str) -> list[str]:
+    """Dockerfile lines with backslash continuations joined (#90 AC2).
+
+    Comment and blank lines are dropped BEFORE joining, per Docker: a
+    comment ending in '\\' does not swallow the next instruction.
+    """
+    lines: list[str] = []
+    buf = ""
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        buf = f"{buf} {stripped}" if buf else stripped
+        if buf.endswith("\\"):
+            buf = buf[:-1].rstrip()
+        else:
+            lines.append(buf)
+            buf = ""
+    if buf:
+        lines.append(buf)
+    return lines
+
+
+def _unquote(value: str) -> str:
+    """Strip one layer of surrounding single/double quotes (#90 AC3)."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
+
+
 def _dockerfile_env() -> dict[str, str]:
-    """The image's baked-in ENV key=value pairs, parsed from the Dockerfile."""
+    """The image's baked-in ENV pairs, in both Docker grammars (#90).
+
+    Continuations are joined first, then each ENV instruction branches on
+    its first token: containing '=' means the key=value grammar (multiple
+    pairs per instruction, shlex handles quoting); otherwise the legacy
+    `ENV key value` grammar — exactly one pair whose value is the whole
+    remainder of the line, spaces and '=' included.
+    """
     env: dict[str, str] = {}
-    for line in DOCKERFILE.read_text(encoding="utf-8").splitlines():
-        parts = line.split()
-        if parts and parts[0] == "ENV":
-            for pair in parts[1:]:
+    for line in _logical_lines(DOCKERFILE.read_text(encoding="utf-8")):
+        parts = line.split(None, 1)
+        if len(parts) != 2 or parts[0] != "ENV":
+            continue
+        tokens = parts[1].split(None, 1)
+        if "=" in tokens[0]:
+            for pair in shlex.split(parts[1]):
                 key, sep, value = pair.partition("=")
                 if sep:
                     env[key] = value
+        elif len(tokens) == 2:
+            env[tokens[0]] = _unquote(tokens[1].strip())
     return env
 
 
@@ -106,3 +152,113 @@ def test_dockerfile_port_matches_fly_internal_port() -> None:
         f"http_service.internal_port is {internal_port}. The container would "
         f"bind a different port than the Fly proxy forwards to (#88)."
     )
+
+
+# ---------------------------------------------------------------------------
+# #90 regression lock: the pre-#90 parser only understood single-line
+# `ENV key=value` pairs, so legacy `ENV key value`, continuation lines, and
+# quoted values silently escaped BOTH drift guards above (the #88 failure
+# mode: image defaults to stdio / wrong port with a green suite).
+# ---------------------------------------------------------------------------
+
+
+def _patch_dockerfile(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, text: str) -> None:
+    """Point the guards' DOCKERFILE at a fixture instead of the shipped file."""
+    fixture = tmp_path / "Dockerfile"
+    fixture.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "DOCKERFILE", fixture)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # key=value grammar (existing behavior must not regress)
+        ("ENV MCP_PORT=8080\n", {"MCP_PORT": "8080"}),
+        ("ENV A=1 B=2\n", {"A": "1", "B": "2"}),
+        ("ENV MCP_PORT=8080", {"MCP_PORT": "8080"}),  # no trailing newline
+        # AC3: surrounding quotes stripped, both quote styles, both grammars
+        ('ENV MCP_PORT="8080"\n', {"MCP_PORT": "8080"}),
+        ("ENV MCP_PORT='8080'\n", {"MCP_PORT": "8080"}),
+        ('ENV MCP_PORT "8080"\n', {"MCP_PORT": "8080"}),
+        ('ENV A="hello world"\n', {"A": "hello world"}),
+        # AC1: legacy grammar — one pair, value = rest of the line, trimmed
+        ("ENV MCP_PORT 8080\n", {"MCP_PORT": "8080"}),
+        ("ENV MOTD hello world\n", {"MOTD": "hello world"}),
+        ("ENV OPTS a=b c=d\n", {"OPTS": "a=b c=d"}),  # '=' in value stays legacy
+        # AC2: backslash continuations joined for BOTH grammars
+        ("ENV MCP_PORT \\\n    8080\n", {"MCP_PORT": "8080"}),
+        ("ENV A=1 \\\n    B=2\n", {"A": "1", "B": "2"}),
+        ('ENV MCP_PORT \\\n    "8080"\n', {"MCP_PORT": "8080"}),
+        # comments must not hide instructions (even a comment ending in '\')
+        ("# ENV GHOST=1\nENV MCP_PORT=8080\n", {"MCP_PORT": "8080"}),
+        ("# comment ends in backslash \\\nENV MCP_PORT=8080\n", {"MCP_PORT": "8080"}),
+    ],
+)
+def test_dockerfile_env_parses_both_grammars(
+    text: str, expected: dict[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_dockerfile(monkeypatch, tmp_path, text)
+    assert _dockerfile_env() == expected
+
+
+# Fixture Dockerfiles setting MCP_TRANSPORT in the syntaxes the old parser
+# missed. {port} snippets below are formatted against fly.toml's actual
+# internal_port so the fixtures never hard-code a second 8080 (same doctrine
+# as the guards themselves).
+_TRANSPORT_DRIFT_SNIPPETS = [
+    "ENV MCP_TRANSPORT streamable-http\n",  # legacy
+    "ENV MCP_TRANSPORT \\\n    streamable-http\n",  # legacy + continuation
+    "ENV MCP_HOST=0.0.0.0 \\\n    MCP_TRANSPORT=streamable-http\n",  # continuation pairs
+]
+
+_PORT_SNIPPETS = [
+    "ENV MCP_PORT {port}\n",  # legacy
+    "ENV MCP_PORT \\\n    {port}\n",  # legacy + continuation
+    'ENV MCP_PORT "{port}"\n',  # legacy + quotes
+    'ENV MCP_PORT="{port}"\n',  # key=value + quotes
+    "ENV MCP_HOST=0.0.0.0 \\\n    MCP_PORT={port}\n",  # continuation pairs
+]
+
+
+@pytest.mark.parametrize("snippet", _TRANSPORT_DRIFT_SNIPPETS)
+def test_transport_guard_rejects_drift_in_missed_syntaxes(
+    snippet: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC4: the transport guard must FAIL on legacy/continuation MCP_TRANSPORT.
+
+    Pre-#90 the parser returned {} for these fixtures and the guard passed.
+    """
+    _patch_dockerfile(monkeypatch, tmp_path, snippet)
+    with pytest.raises(AssertionError, match="MCP_TRANSPORT"):
+        test_dockerfile_does_not_set_mcp_transport()
+
+
+@pytest.mark.parametrize("snippet", _PORT_SNIPPETS)
+def test_port_guard_rejects_drift_in_missed_syntaxes(
+    snippet: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC4: the port guard must FAIL when the image port disagrees with fly.toml.
+
+    Pre-#90 legacy/continuation fixtures false-passed via the image_port is
+    None early return, and quoted values raised ValueError instead of the
+    guard's AssertionError.
+    """
+    drifted_port = _fly_config()["http_service"]["internal_port"] + 1
+    _patch_dockerfile(monkeypatch, tmp_path, snippet.format(port=drifted_port))
+    with pytest.raises(AssertionError, match="MCP_PORT"):
+        test_dockerfile_port_matches_fly_internal_port()
+
+
+@pytest.mark.parametrize("snippet", _PORT_SNIPPETS)
+def test_guards_pass_on_matching_port_in_all_syntaxes(
+    snippet: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC4: a correctly configured image passes in every supported syntax.
+
+    The shipped-file PASS case is covered by the four guards above running
+    against the real Dockerfile/fly.toml in the normal suite.
+    """
+    matching_port = _fly_config()["http_service"]["internal_port"]
+    _patch_dockerfile(monkeypatch, tmp_path, snippet.format(port=matching_port))
+    test_dockerfile_port_matches_fly_internal_port()
+    test_dockerfile_does_not_set_mcp_transport()
