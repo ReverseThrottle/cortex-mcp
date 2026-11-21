@@ -8,6 +8,12 @@ primary_region = 'sjc'
 
 [build]
 
+# Fly machines have no attached stdin: without this the image's stdio default
+# sees EOF and exits before binding internal_port (#88). The Dockerfile stays
+# stdio-by-default so `docker run -i` keeps working for Claude Desktop.
+[env]
+  MCP_TRANSPORT = "streamable-http"
+
 [http_service]
   internal_port = 8080
   force_https = true
