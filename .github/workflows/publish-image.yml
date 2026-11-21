@@ -1,7 +1,7 @@
 name: Publish image
 
 # Version tag pushes publish ghcr.io/reversethrottle/cortex-mcp:<tag>.
-# A published GitHub release also pushes the :latest tag.
+# A published GitHub release pushes both :<release-tag> and :latest.
 # Login uses the built-in GITHUB_TOKEN with packages: write. No extra secret is required.
 on:
   push:
@@ -34,6 +34,7 @@ jobs:
           images: ghcr.io/reversethrottle/cortex-mcp
           tags: |
             type=raw,value=${{ github.ref_name }},enable=${{ github.event_name == 'push' }}
+            type=raw,value=${{ github.event.release.tag_name }},enable=${{ github.event_name == 'release' }}
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
       - name: Build and push
         uses: docker/build-push-action@v6
