@@ -78,7 +78,9 @@ def _dockerfile_env() -> dict[str, str]:
     env: dict[str, str] = {}
     for line in _logical_lines(DOCKERFILE.read_text(encoding="utf-8")):
         parts = line.split(None, 1)
-        if len(parts) != 2 or parts[0] != "ENV":
+        # Dockerfile instruction keywords are case-insensitive per the
+        # Dockerfile reference, so match `ENV` against any case.
+        if len(parts) != 2 or parts[0].upper() != "ENV":
             continue
         tokens = parts[1].split(None, 1)
         if "=" in tokens[0]:
@@ -192,6 +194,16 @@ def _patch_dockerfile(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, text: str
         # comments must not hide instructions (even a comment ending in '\')
         ("# ENV GHOST=1\nENV MCP_PORT=8080\n", {"MCP_PORT": "8080"}),
         ("# comment ends in backslash \\\nENV MCP_PORT=8080\n", {"MCP_PORT": "8080"}),
+        # instruction keyword is case-insensitive per the Dockerfile reference —
+        # lowercase/mixed `env` must be parsed identically to uppercase, in BOTH
+        # grammars (the #88/#90 drift guards must never silently skip these).
+        ("env MCP_PORT=8080\n", {"MCP_PORT": "8080"}),
+        ("Env A=1 B=2\n", {"A": "1", "B": "2"}),
+        ('eNV MCP_PORT="8080"\n', {"MCP_PORT": "8080"}),  # key=value + quotes
+        ("enV MCP_PORT=8080\n", {"MCP_PORT": "8080"}),
+        ("enV MCP_PORT 8080\n", {"MCP_PORT": "8080"}),  # legacy grammar
+        ("eNv MOTD hello world\n", {"MOTD": "hello world"}),
+        ("Env MCP_PORT \\\n    8080\n", {"MCP_PORT": "8080"}),  # legacy + continuation
     ],
 )
 def test_dockerfile_env_parses_both_grammars(
