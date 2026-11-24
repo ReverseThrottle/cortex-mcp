@@ -25,6 +25,7 @@ from config.config import Settings
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 ENV_EXAMPLE = ROOT / ".env.example"
+SRC_README = ROOT / "src" / "README.md"
 
 
 def _settings_aliases() -> list[str]:
@@ -80,4 +81,23 @@ def test_log_level_default_matches_docs() -> None:
     assert entry.group(1) == default, (
         f".env.example sets LOG_LEVEL={entry.group(1)!r} but Settings.log_level "
         f"defaults to {default!r}. Make them agree (#56)."
+    )
+
+
+def test_cli_log_level_help_default_matches_docs() -> None:
+    """Regression for #96: src/README.md's --log-level help text drifted from
+
+    the Settings default the same way the top-level docs did in #56, because
+    the earlier guard only read README.md and .env.example. Pin src/README.md's
+    stated --log-level default to the model's too, so this surface can't drift
+    silently again.
+    """
+    default = Settings.model_fields["log_level"].default
+
+    src_readme = SRC_README.read_text(encoding="utf-8")
+    option = re.search(r"--log-level <LEVEL>.*?default:\s*([A-Z]+)\)", src_readme)
+    assert option, "src/README.md has no --log-level option description to check the default against"
+    assert option.group(1) == default, (
+        f"src/README.md documents --log-level default {option.group(1)!r} but Settings.log_level "
+        f"defaults to {default!r}. Make them agree (#96)."
     )

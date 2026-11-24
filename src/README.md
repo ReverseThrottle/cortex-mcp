@@ -32,7 +32,7 @@ python src/cli.py start [OPTIONS]
 - `--api_key_id <ID>`: The ID of the API key 
 - `--api_key_secret <SECRET>`: The API key secret 
 - `--server-url <URL>`: The Cortex PAPI server URL
-- `--log-level <LEVEL>`: Log level (choices: DEBUG, INFO, WARNING, ERROR, CRITICAL, default: DEBUG)
+- `--log-level <LEVEL>`: Log level (choices: DEBUG, INFO, WARNING, ERROR, CRITICAL, default: INFO)
 
 ### update
 Update a folder containing cortex content (default is remote_components folder).
