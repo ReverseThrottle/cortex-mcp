@@ -3,6 +3,10 @@
 Thanks for your interest in improving cortex-mcp. This project accepts
 external pull requests; this document covers what to do before you open one.
 
+All participation in this project is governed by our
+[Code of Conduct](CODE_OF_CONDUCT.md). By contributing, you're expected to
+uphold it.
+
 ## Local setup
 
 ```bash
