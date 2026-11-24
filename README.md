@@ -967,7 +967,8 @@ npx @modelcontextprotocol/inspector python src/main.py
 ### Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full local setup, required
-checks, and pull request process.
+checks, and pull request process. Participation is governed by our
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ---
 
