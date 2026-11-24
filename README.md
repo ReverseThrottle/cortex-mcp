@@ -25,6 +25,7 @@ A community-built [Model Context Protocol (MCP)](https://modelcontextprotocol.io
   - [Python module](#python-module)
   - [OpenAPI spec](#openapi-spec)
 - [Development](#development)
+  - [Contributing](#contributing)
 - [Project structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
 
@@ -962,6 +963,11 @@ The [MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the be
 ```bash
 npx @modelcontextprotocol/inspector python src/main.py
 ```
+
+### Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full local setup, required
+checks, and pull request process.
 
 ---
 
