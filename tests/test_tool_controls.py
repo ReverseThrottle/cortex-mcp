@@ -72,6 +72,56 @@ async def test_deny_wins_over_allow(tool_env):
     assert names ^ baseline == set()
 
 
+# Every handwritten write/action tool gated by write_tool_enabled() outside
+# update_case (which the tests above already cover). One call site per module:
+# broker_vm.py (looped over _BROKER_TOOLS), content_uploads.py, xsoar_actions.py,
+# xql_query.py. See issue #121.
+_OTHER_HANDWRITTEN_WRITE_TOOLS = (
+    "post_auth_reset_initial_password",
+    "post_auth_token",
+    "post_logs",
+    "post_network_interface",
+    "post_network_internal_subnet",
+    "post_network_proxy",
+    "post_network_ntp",
+    "post_network_ssl_certificate",
+    "post_network_trusted_ca",
+    "post_register",
+    "insert_script",
+    "insert_playbook",
+    "post_playbook_save_yaml",
+    "post_entry_upload_by_incident_id",
+    "post_incident_upload_by_incident_id",
+    "post_inv_playbook_task_complete",
+    "put_settings_credentials",
+    "run_xql_query",
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", _OTHER_HANDWRITTEN_WRITE_TOOLS)
+async def test_allow_registers_each_handwritten_write_tool_without_the_write_flag(tool_env, name):
+    tool_env(MCP_WRITE_TOOLS_ENABLED="false")
+    off = await _names()
+    assert name not in off
+    tool_env(MCP_TOOLS_ALLOW=name)
+    names = await _names()
+    assert name in names
+    assert names - off == {name}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", _OTHER_HANDWRITTEN_WRITE_TOOLS)
+async def test_deny_removes_each_handwritten_write_tool_even_when_writes_are_enabled(tool_env, name):
+    tool_env(MCP_WRITE_TOOLS_ENABLED="true")
+    baseline = await _names()
+    assert name in baseline
+    tool_env(MCP_TOOLS_DENY=name)
+    names = await _names()
+    assert name not in names
+    assert baseline - names == {name}
+
+
 @pytest.mark.asyncio
 async def test_isolate_tools_keep_their_own_flag(tool_env):
     tool_env(MCP_WRITE_TOOLS_ENABLED="true", MCP_ISOLATE_ENDPOINT_TOOL_ENABLED="true")
