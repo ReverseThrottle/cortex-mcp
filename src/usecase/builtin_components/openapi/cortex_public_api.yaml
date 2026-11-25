@@ -10859,6 +10859,7 @@
       "post": {
         "operationId": "post_brokers_by_device_id_logs_generate",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Request asynchronous log-bundle collection from a broker",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/brokers/{device_id}/logs/generate/). It can create, update, or delete data. Confirm the target before calling.\n\nRequest asynchronous log-bundle collection from a broker",
         "tags": [
@@ -11340,6 +11341,7 @@
       "post": {
         "operationId": "post_case_timeline_by_case_id_add_record",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add a case timeline record",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/case/timeline/{case_id}/add_record/). It can create, update, or delete data. Confirm the target before calling.\n\nAdd a case timeline record",
         "tags": [
@@ -11535,6 +11537,7 @@
       "post": {
         "operationId": "post_entries_insert",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add War Room entries",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/entries/insert). It can create, update, or delete data. Confirm the target before calling.\n\nAdd War Room entries",
         "tags": [
@@ -12446,6 +12449,7 @@
       "post": {
         "operationId": "post_cloud_onboarding_create_instance_template",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Create a cloud onboarding integration template",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/cloud_onboarding/create_instance_template). It can create, update, or delete data. Confirm the target before calling.\n\nCreate a cloud onboarding integration template",
         "tags": [
@@ -14223,6 +14227,7 @@
       "post": {
         "operationId": "post_cloud_onboarding_create_outpost_template",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Create an outpost template",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/cloud_onboarding/create_outpost_template). It can create, update, or delete data. Confirm the target before calling.\n\nCreate an outpost template",
         "tags": [
@@ -16574,6 +16579,7 @@
       "post": {
         "operationId": "post_compliance_add_assessment_profile",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add assessment profile",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/compliance/add_assessment_profile). It can create, update, or delete data. Confirm the target before calling.\n\nAdd assessment profile",
         "tags": [
@@ -17334,6 +17340,7 @@
       "post": {
         "operationId": "post_compliance_add_control",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add new control (v1)",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/compliance/add_control). It can create, update, or delete data. Confirm the target before calling.\n\nAdd new control (v1)",
         "tags": [
@@ -17856,6 +17863,7 @@
       "post": {
         "operationId": "post_compliance_add_rules_to_control",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add compliance rules to a compliance control",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/compliance/add_rules_to_control). It can create, update, or delete data. Confirm the target before calling.\n\nAdd compliance rules to a compliance control",
         "tags": [
@@ -18248,6 +18256,7 @@
       "post": {
         "operationId": "post_compliance_add_standard",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add new standard (v1)",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/compliance/add_standard). It can create, update, or delete data. Confirm the target before calling.\n\nAdd new standard (v1)",
         "tags": [
@@ -20854,6 +20863,7 @@
       "post": {
         "operationId": "post_api_keys_generate",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Generate an API Key",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/api_keys/generate). It can create, update, or delete data. Confirm the target before calling.\n\nGenerate an API Key",
         "tags": [
@@ -21221,6 +21231,7 @@
       "post": {
         "operationId": "post_asset_groups_create",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Create an Asset Group",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/asset-groups/create). It can create, update, or delete data. Confirm the target before calling.\n\nCreate an Asset Group",
         "tags": [
@@ -22430,6 +22441,7 @@
       "post": {
         "operationId": "post_authentication_settings_create",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Create authentication settings for IdP SSO or metadata URL",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/authentication-settings/create). It can create, update, or delete data. Confirm the target before calling.\n\nCreate authentication settings for IdP SSO or metadata URL",
         "tags": [
@@ -24021,6 +24033,7 @@
       "post": {
         "operationId": "post_xql_add_dataset",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add Dataset",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/xql/add_dataset). It can create, update, or delete data. Confirm the target before calling.\n\nAdd Dataset",
         "tags": [
@@ -24452,6 +24465,7 @@
       "post": {
         "operationId": "post_distributions_create",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Create distributions",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/distributions/create). It can create, update, or delete data. Confirm the target before calling.\n\nCreate distributions",
         "tags": [
@@ -25125,6 +25139,7 @@
       "post": {
         "operationId": "post_tags_agents_create",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Create Tag",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/tags/agents/create). It can create, update, or delete data. Confirm the target before calling.\n\nCreate Tag",
         "tags": [
@@ -25855,6 +25870,7 @@
       "post": {
         "operationId": "post_legacy_exceptions_add",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add Legacy Exception Rule",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/legacy_exceptions/add). It can create, update, or delete data. Confirm the target before calling.\n\nAdd Legacy Exception Rule",
         "tags": [
@@ -26114,6 +26130,7 @@
       "post": {
         "operationId": "post_profiles_prevention_add",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add Prevention Profile",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/profiles/prevention/add). It can create, update, or delete data. Confirm the target before calling.\n\nAdd Prevention Profile",
         "tags": [
@@ -29332,6 +29349,7 @@
       "post": {
         "operationId": "post_integrations_syslog_create",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Create a syslog integration",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/integrations/syslog/create). It can create, update, or delete data. Confirm the target before calling.\n\nCreate a syslog integration",
         "tags": [
@@ -30637,6 +30655,7 @@
       "post": {
         "operationId": "post_dataset_define_dataset",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Define an XQL user dataset",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/dataset/define_dataset). It can create, update, or delete data. Confirm the target before calling.\n\nDefine an XQL user dataset",
         "tags": [
@@ -33773,6 +33792,7 @@
       "post": {
         "operationId": "post_mth_child_add_comment",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add a comment to an MTH/MDR report",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/mth/child/add_comment). It can create, update, or delete data. Confirm the target before calling.\n\nAdd a comment to an MTH/MDR report",
         "tags": [
@@ -45676,6 +45696,7 @@
       "post": {
         "operationId": "post_uvm_public_v1_create_policy",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Create Policy Public",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/uvm_public/v1/create_policy). It can create, update, or delete data. Confirm the target before calling.\n\nCreate Policy Public",
         "tags": [
@@ -60312,6 +60333,7 @@
       "post": {
         "operationId": "post_alerts_insert_parsed_alerts",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Insert parsed alerts",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/alerts/insert_parsed_alerts/). It can create, update, or delete data. Confirm the target before calling.\n\nInsert parsed alerts",
         "tags": [
@@ -60922,6 +60944,7 @@
       "post": {
         "operationId": "post_alerts_insert_cef_alerts",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Insert CEF Alerts",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/alerts/insert_cef_alerts). It can create, update, or delete data. Confirm the target before calling.\n\nInsert CEF Alerts",
         "tags": [
@@ -63107,6 +63130,7 @@
       "post": {
         "operationId": "post_asm_management_upload_asm_data",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Upload Assets",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/asm_management/upload_asm_data/). It can create, update, or delete data. Confirm the target before calling.\n\nUpload Assets",
         "tags": [
@@ -63934,6 +63958,7 @@
       "post": {
         "operationId": "post_assets_create_asset_tag_rules",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Create Asset Tag Rules",
         "description": "Side effects: this operation changes Cortex tenant state (POST /public_api/v1/assets/create_asset_tag_rules/). It can create, update, or delete data. Confirm the target before calling.\n\nCreate Asset Tag Rules",
         "tags": [
@@ -68639,6 +68664,7 @@
       "post": {
         "operationId": "post_indicator_create",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Create an indicator",
         "description": "Side effects: this operation changes Cortex tenant state (POST /xsoar/public/v1/indicator/create). It can create, update, or delete data. Confirm the target before calling.\n\nCreate an indicator",
         "tags": [
@@ -71438,6 +71464,7 @@
       "post": {
         "operationId": "post_inv_playbook_task_add_by_investigationid",
         "x-cortex-mcp-side-effect": "write",
+        "x-cortex-mcp-destructive": false,
         "summary": "Add ad-hoc playbook task",
         "description": "Side effects: this operation changes Cortex tenant state (POST /xsoar/public/v1/inv-playbook/task/add/{investigationId}). It can create, update, or delete data. Confirm the target before calling.\n\nAdd ad-hoc playbook task",
         "tags": [

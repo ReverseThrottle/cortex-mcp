@@ -90,6 +90,10 @@ def inline_formatting(monkeypatch):
     previous = os.environ.get("MCP_INLINE_FORMATTING_INSTRUCTIONS")
     elicitation = os.environ.get("MCP_ELICITATION_ENABLED")
 
+    # MCP_WRITE_CONFIRMATION wins over the deprecated variable, so an exported
+    # value must not change what confirm=True resolves to.
+    monkeypatch.delenv("MCP_WRITE_CONFIRMATION", raising=False)
+
     def apply(*, inline: bool, confirm: bool = False):
         monkeypatch.setenv("MCP_INLINE_FORMATTING_INSTRUCTIONS", "true" if inline else "false")
         monkeypatch.setenv("MCP_ELICITATION_ENABLED", "true" if confirm else "false")

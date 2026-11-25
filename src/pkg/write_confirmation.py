@@ -124,10 +124,23 @@ def _modern_confirmation(responses: Any) -> bool | None:
     return bool(content.get("confirm"))
 
 
+async def _without_elicitation(mode: str, tool_name: str, context: MiddlewareContext, call_next: CallNext):
+    """The client cannot be asked. ``require`` refuses; ``elicit`` runs the tool."""
+    if mode == "require":
+        return _refused(
+            f"{tool_name} changes Cortex tenant state. MCP_WRITE_CONFIRMATION=require needs a client that "
+            "supports MCP elicitation, but this client does not support it, so the operation was not run. "
+            "Use a client that supports elicitation, or set MCP_WRITE_CONFIRMATION=elicit or "
+            "MCP_WRITE_CONFIRMATION=client."
+        )
+    logger.info("MCP elicitation is not available for %s; running it without a server prompt.", tool_name)
+    return await call_next(context)
+
+
 class WriteConfirmationMiddleware(Middleware):
     """Ask the MCP client to confirm a mutating tool before it runs.
 
-    MCP_ELICITATION_ENABLED false leaves every call unchanged. The write and
+    MCP_WRITE_CONFIRMATION client leaves every call unchanged. The write and
     isolate flags still decide which tools are registered.
     """
 
@@ -136,7 +149,8 @@ class WriteConfirmationMiddleware(Middleware):
         context: MiddlewareContext,
         call_next: CallNext,
     ):
-        if not get_config().elicitation_enabled:
+        mode = get_config().effective_write_confirmation
+        if mode == "client":
             return await call_next(context)
 
         ctx = context.fastmcp_context
@@ -152,15 +166,11 @@ class WriteConfirmationMiddleware(Middleware):
         if tool is None or not changes_tenant_state(tool):
             return await call_next(context)
 
-        unsupported = (
-            f"{tool_name} changes Cortex tenant state. MCP elicitation is enabled, "
-            "but this client does not support it, so the operation was not run."
-        )
         supported = _elicitation_supported(ctx)
 
         if _is_modern_protocol(ctx):
             if supported is False:
-                return _refused(unsupported)
+                return await _without_elicitation(mode, tool_name, context, call_next)
             decision = _modern_confirmation(getattr(ctx, "input_responses", None))
             if decision is None:
                 return _ask_for_confirmation(tool_name)
@@ -169,7 +179,7 @@ class WriteConfirmationMiddleware(Middleware):
             return await call_next(context)
 
         if ctx.request_context is None or not supported:
-            return _refused(unsupported)
+            return await _without_elicitation(mode, tool_name, context, call_next)
 
         message = _confirmation_message(tool_name)
         try:

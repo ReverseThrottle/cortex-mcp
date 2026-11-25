@@ -10,6 +10,7 @@ from mcp.types import ToolAnnotations
 
 from pkg.tool_classification import (
     SideEffect,
+    additive_from_route,
     align_description,
     remember_side_effect,
     side_effect_from_route,
@@ -38,12 +39,22 @@ _JSON_MEDIA_TYPES = frozenset(
 )
 
 
-def annotations_for_side_effect(kind: SideEffect | None) -> ToolAnnotations:
-    """Read tools are not destructive. Anything else fails closed, including an unknown class."""
+def annotations_for_side_effect(kind: SideEffect | None, *, additive: bool = False) -> ToolAnnotations:
+    """Publish the MCP hints for one side-effect class.
+
+    Reads are read-only and never destructive. A write or action is destructive
+    unless it is listed as additive. Secret tools return material without
+    changing the tenant but are not read-only, so clients keep prompting. An
+    unknown class fails closed and ``additive`` is ignored for it.
+    """
     read_only = kind == "read"
+    if kind in ("read", "secret"):
+        destructive = False
+    else:
+        destructive = not (additive and kind in ("write", "action"))
     return ToolAnnotations(
         read_only_hint=read_only,
-        destructive_hint=not read_only,
+        destructive_hint=destructive,
         idempotent_hint=read_only,
         open_world_hint=True,
     )
@@ -255,7 +266,7 @@ def annotate_openapi_component(route: Any, component: Any) -> None:
         path=getattr(route, "path", None),
     )
     component.description = description
-    component.annotations = annotations_for_side_effect(kind)
+    component.annotations = annotations_for_side_effect(kind, additive=additive_from_route(route))
     remember_side_effect(component, kind)
     title = display_title(summary=getattr(route, "summary", None), description=description)
     if title:
