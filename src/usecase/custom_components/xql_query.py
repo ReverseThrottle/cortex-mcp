@@ -17,6 +17,7 @@ from entities.exceptions import (
     PAPIServerError,
 )
 from pkg.call_deadline import record_call_recovery
+from pkg.tool_classification import write_tool_enabled
 from pkg.util import create_response
 from usecase.base_module import BaseModule
 from usecase.fetcher import get_fetcher
@@ -255,7 +256,7 @@ class XQLQueryModule(BaseModule):
 
     def register_tools(self):
         self._add_tool(post_xql_get_query_results_stream)
-        if get_config().write_tools_enabled:
+        if write_tool_enabled(run_xql_query.__name__):
             self._add_tool(run_xql_query)
 
     def register_resources(self):

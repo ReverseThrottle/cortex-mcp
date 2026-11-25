@@ -6,7 +6,6 @@ from typing import Annotated, Literal, Optional
 from fastmcp import Context, FastMCP
 from pydantic import Field
 
-from config.config import get_config
 from entities.exceptions import (
     PAPIAuthenticationError,
     PAPIClientError,
@@ -15,6 +14,7 @@ from entities.exceptions import (
     PAPIResponseError,
     PAPIServerError,
 )
+from pkg.tool_classification import write_tool_enabled
 from pkg.util import create_response, path_segment_error
 from usecase.base_module import BaseModule
 from usecase.fetcher import get_fetcher
@@ -287,13 +287,16 @@ class XsoarActionsModule(BaseModule):
     """XSOAR 8 uploads and credential writes whose public bodies are not JSON."""
 
     def register_tools(self):
-        if not get_config().write_tools_enabled:
-            return
-        self._add_tool(post_playbook_save_yaml)
-        self._add_tool(post_entry_upload_by_incident_id)
-        self._add_tool(post_incident_upload_by_incident_id)
-        self._add_tool(post_inv_playbook_task_complete)
-        self._add_tool(put_settings_credentials)
+        if write_tool_enabled(post_playbook_save_yaml.__name__):
+            self._add_tool(post_playbook_save_yaml)
+        if write_tool_enabled(post_entry_upload_by_incident_id.__name__):
+            self._add_tool(post_entry_upload_by_incident_id)
+        if write_tool_enabled(post_incident_upload_by_incident_id.__name__):
+            self._add_tool(post_incident_upload_by_incident_id)
+        if write_tool_enabled(post_inv_playbook_task_complete.__name__):
+            self._add_tool(post_inv_playbook_task_complete)
+        if write_tool_enabled(put_settings_credentials.__name__):
+            self._add_tool(put_settings_credentials)
 
     def register_resources(self):
         pass

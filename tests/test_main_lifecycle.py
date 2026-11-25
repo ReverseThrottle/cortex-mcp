@@ -294,3 +294,87 @@ async def test_startup_kwargs_keep_the_handler_stateless(startup_env, monkeypatc
                 },
             )
             assert streamed.status_code == 405  # no standalone GET SSE stream
+
+
+@pytest.mark.asyncio
+async def test_require_mode_stops_http_startup_before_the_server_is_built(startup_env, monkeypatch):
+    calls = _stub_runners(monkeypatch)
+    created = _stub_server_factory(monkeypatch)
+    monkeypatch.setenv("MCP_WRITE_CONFIRMATION", "require")
+    reload_config()
+    try:
+        with pytest.raises(ValueError, match="MCP_WRITE_CONFIRMATION=require"):
+            await main.async_main("streamable-http")
+    finally:
+        monkeypatch.delenv("MCP_WRITE_CONFIRMATION", raising=False)
+        reload_config()
+
+    assert created == []
+    assert calls["http"] == []
+
+
+@pytest.mark.asyncio
+async def test_unknown_tool_name_stops_startup_before_the_server_is_built(startup_env, monkeypatch):
+    calls = _stub_runners(monkeypatch)
+    created = _stub_server_factory(monkeypatch)
+    monkeypatch.setenv("MCP_TOOLS_DENY", "not_a_tool")
+    reload_config()
+    try:
+        with pytest.raises(ValueError, match="not_a_tool"):
+            await main.async_main("stdio")
+    finally:
+        monkeypatch.delenv("MCP_TOOLS_DENY", raising=False)
+        reload_config()
+
+    assert created == []
+    assert calls["stdio"] == []
+
+
+@pytest.mark.asyncio
+async def test_transport_is_resolved_once_per_start(startup_env, monkeypatch):
+    _stub_runners(monkeypatch)
+    _stub_server_factory(monkeypatch)
+    seen: list[str] = []
+    real = main.resolve_transport
+
+    def counting(transport: str) -> str:
+        seen.append(transport)
+        return real(transport)
+
+    monkeypatch.setattr(main, "resolve_transport", counting)
+    await main.async_main("http")
+    assert seen == ["http"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transport", ["streamable-http", "http"])
+async def test_deprecated_elicitation_variable_stops_http_startup_before_the_server_is_built(
+    startup_env, monkeypatch, transport
+):
+    calls = _stub_runners(monkeypatch)
+    created = _stub_server_factory(monkeypatch)
+    monkeypatch.delenv("MCP_WRITE_CONFIRMATION", raising=False)
+    monkeypatch.setenv("MCP_ELICITATION_ENABLED", "true")
+    reload_config()
+    try:
+        with pytest.raises(ValueError, match="MCP_WRITE_CONFIRMATION=require"):
+            await main.async_main(transport)
+    finally:
+        monkeypatch.delenv("MCP_ELICITATION_ENABLED", raising=False)
+        reload_config()
+
+    assert created == []
+    assert calls["http"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transport", ["websocket", "sse"])
+async def test_unrecognized_transport_stops_startup_before_the_server_is_built(startup_env, monkeypatch, transport):
+    calls = _stub_runners(monkeypatch)
+    created = _stub_server_factory(monkeypatch)
+
+    with pytest.raises(ValueError, match="not supported"):
+        await main.async_main(transport)
+
+    assert created == []
+    assert calls == {"http": [], "stdio": []}

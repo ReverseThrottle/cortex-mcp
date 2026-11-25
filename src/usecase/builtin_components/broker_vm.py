@@ -6,8 +6,8 @@ from typing import Annotated, Literal, Optional
 from fastmcp import Context, FastMCP
 from pydantic import Field
 
-from config.config import get_config
 from pkg.broker_client import BrokerError, get_broker_client, use_new_admin_password
+from pkg.tool_classification import write_tool_enabled
 from pkg.util import create_response
 from usecase.base_module import BaseModule
 
@@ -328,10 +328,9 @@ class BrokerVmModule(BaseModule):
     """On-appliance Broker VM operations. They are not the tenant /brokers/ API."""
 
     def register_tools(self):
-        if not get_config().write_tools_enabled:
-            return
         for tool in _BROKER_TOOLS:
-            self._add_tool(tool)
+            if write_tool_enabled(tool.__name__):
+                self._add_tool(tool)
 
     def register_resources(self):
         pass

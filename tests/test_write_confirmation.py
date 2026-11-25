@@ -1,9 +1,11 @@
 import base64
 import json
+import logging
 import os
 from typing import Any, cast
 
 import pytest
+from fastmcp.exceptions import NotFoundError
 from fastmcp.server.elicitation import AcceptedElicitation, DeclinedElicitation
 from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.tools import InputRequiredToolResult
@@ -84,6 +86,9 @@ def _call_context(
 
 @pytest.fixture
 def elicitation(monkeypatch):
+    # MCP_WRITE_CONFIRMATION wins over the deprecated variable. A developer
+    # environment must not change what these tests resolve.
+    monkeypatch.delenv("MCP_WRITE_CONFIRMATION", raising=False)
     previous = os.environ.get("MCP_ELICITATION_ENABLED")
 
     def apply(enabled: bool):
@@ -290,3 +295,241 @@ async def test_incident_and_war_room_uploads_send_binary_bytes(monkeypatch):
     assert captured[0][0] == "/xsoar/public/v1/entry/upload/42"
     assert captured[1][0] == "/xsoar/public/v1/incident/upload/42"
     assert captured[0][1] == captured[1][1] == b"\x89PNG\r\n\x1a\n\x00\x00"
+
+
+@pytest.fixture
+def confirmation_mode(monkeypatch):
+    monkeypatch.delenv("MCP_ELICITATION_ENABLED", raising=False)
+
+    def apply(mode: str | None):
+        if mode is None:
+            monkeypatch.delenv("MCP_WRITE_CONFIRMATION", raising=False)
+        else:
+            monkeypatch.setenv("MCP_WRITE_CONFIRMATION", mode)
+        return reload_config()
+
+    yield apply
+
+    monkeypatch.undo()
+    reload_config()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [None, "client"])
+async def test_client_mode_never_prompts_and_runs_the_write(confirmation_mode, mode):
+    confirmation_mode(mode)
+    context, ctx = _call_context("write", supports=True)
+
+    async def call_next(seen):
+        return "ran"
+
+    assert await WriteConfirmationMiddleware().on_call_tool(context, call_next) == "ran"
+    assert ctx.elicited is False
+
+
+@pytest.mark.asyncio
+async def test_elicit_mode_asks_when_the_client_can_be_asked(confirmation_mode):
+    confirmation_mode("elicit")
+    middleware = WriteConfirmationMiddleware()
+
+    async def call_next(seen):
+        return "ran"
+
+    confirmed, ctx = _call_context("write", supports=True, confirm=True)
+    assert await middleware.on_call_tool(confirmed, call_next) == "ran"
+    assert ctx.elicited is True
+
+    async def must_not_run(seen):
+        raise AssertionError("the tool ran")
+
+    declined, ctx = _call_context("write", supports=True, confirm=False)
+    refused = await middleware.on_call_tool(declined, must_not_run)
+    assert refused.is_error is True
+    assert "not confirmed" in refused.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_elicit_mode_runs_the_write_when_the_client_cannot_be_asked(confirmation_mode):
+    confirmation_mode("elicit")
+    context, ctx = _call_context("write", supports=False)
+
+    async def call_next(seen):
+        return "ran"
+
+    assert await WriteConfirmationMiddleware().on_call_tool(context, call_next) == "ran"
+    assert ctx.elicited is False
+
+
+@pytest.mark.asyncio
+async def test_elicit_mode_on_the_modern_protocol(confirmation_mode):
+    confirmation_mode("elicit")
+    middleware = WriteConfirmationMiddleware()
+
+    async def call_next(seen):
+        return "ran"
+
+    undeclared, _ = _modern_context(supports=False)
+    assert await middleware.on_call_tool(undeclared, call_next) == "ran"
+
+    unknown, _ = _modern_context(supports=None)
+    assert isinstance(await middleware.on_call_tool(unknown, call_next), InputRequiredToolResult)
+
+
+@pytest.mark.asyncio
+async def test_require_mode_refuses_when_the_client_cannot_be_asked(confirmation_mode):
+    confirmation_mode("require")
+    context, ctx = _call_context("write", supports=False)
+
+    async def must_not_run(seen):
+        raise AssertionError("the tool ran")
+
+    refused = await WriteConfirmationMiddleware().on_call_tool(context, must_not_run)
+    assert refused.is_error is True
+    assert "does not support" in refused.content[0].text
+    assert ctx.elicited is False
+
+
+@pytest.mark.asyncio
+async def test_read_tools_never_prompt_in_any_mode(confirmation_mode):
+    for mode in ("client", "elicit", "require"):
+        confirmation_mode(mode)
+        context, ctx = _call_context("read", supports=False)
+
+        async def call_next(seen):
+            return "read"
+
+        assert await WriteConfirmationMiddleware().on_call_tool(context, call_next) == "read"
+        assert ctx.elicited is False
+
+
+@pytest.mark.asyncio
+async def test_require_refusal_names_the_setting_and_the_remedy(confirmation_mode):
+    confirmation_mode("require")
+    context, _ = _call_context("write", supports=False)
+
+    async def must_not_run(seen):
+        raise AssertionError("the tool ran")
+
+    refused = await WriteConfirmationMiddleware().on_call_tool(context, must_not_run)
+    text = refused.content[0].text
+    assert refused.is_error is True
+    assert "MCP_WRITE_CONFIRMATION=require" in text
+    assert "does not support" in text
+    assert "MCP_WRITE_CONFIRMATION=client" in text
+    assert "elicitation is enabled" not in text
+
+
+@pytest.mark.asyncio
+async def test_elicit_mode_on_the_modern_protocol_asks_when_the_client_supports_it(confirmation_mode):
+    confirmation_mode("elicit")
+    middleware = WriteConfirmationMiddleware()
+
+    async def call_next(seen):
+        return "ran"
+
+    asked, ctx = _modern_context(supports=True)
+    assert isinstance(await middleware.on_call_tool(asked, call_next), InputRequiredToolResult)
+    assert ctx.elicited is False
+
+    accepted = ElicitResult(action="accept", content={"confirm": True})
+    confirmed, _ = _modern_context({"confirm_write": accepted}, supports=True)
+    assert await middleware.on_call_tool(confirmed, call_next) == "ran"
+
+    async def must_not_run(seen):
+        raise AssertionError("the tool ran")
+
+    declined = ElicitResult(action="decline")
+    refused_context, _ = _modern_context({"confirm_write": declined}, supports=True)
+    refused = await middleware.on_call_tool(refused_context, must_not_run)
+    assert refused.is_error is True
+    assert "not confirmed" in refused.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_require_mode_on_the_modern_protocol_refuses_when_the_client_cannot_be_asked(confirmation_mode):
+    confirmation_mode("require")
+    context, ctx = _modern_context(supports=False)
+
+    async def must_not_run(seen):
+        raise AssertionError("the tool ran")
+
+    refused = await WriteConfirmationMiddleware().on_call_tool(context, must_not_run)
+    assert refused.is_error is True
+    assert "MCP_WRITE_CONFIRMATION=require" in refused.content[0].text
+    assert "does not support" in refused.content[0].text
+    assert ctx.elicited is False
+
+
+@pytest.mark.asyncio
+async def test_missing_request_context_is_handled_per_mode(confirmation_mode):
+    async def must_not_run(seen):
+        raise AssertionError("the tool ran")
+
+    async def call_next(seen):
+        return "ran"
+
+    confirmation_mode("elicit")
+    context, ctx = _call_context("write", supports=True)
+    ctx.request_context = None
+    assert await WriteConfirmationMiddleware().on_call_tool(context, call_next) == "ran"
+    assert ctx.elicited is False
+
+    confirmation_mode("require")
+    context, ctx = _call_context("write", supports=True)
+    ctx.request_context = None
+    refused = await WriteConfirmationMiddleware().on_call_tool(context, must_not_run)
+    assert refused.is_error is True
+    assert "MCP_WRITE_CONFIRMATION=require" in refused.content[0].text
+    assert ctx.elicited is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["elicit", "require"])
+async def test_an_unknown_tool_is_left_to_the_server(confirmation_mode, mode):
+    confirmation_mode(mode)
+
+    class _MissingServer:
+        async def get_tool(self, key: str):
+            raise NotFoundError(f"unknown tool {key}")
+
+    context, ctx = _call_context("write", supports=True)
+    ctx.fastmcp = _MissingServer()
+
+    async def call_next(seen):
+        return "server decides"
+
+    assert await WriteConfirmationMiddleware().on_call_tool(context, call_next) == "server decides"
+    assert ctx.elicited is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["elicit", "require"])
+async def test_a_call_without_a_fastmcp_context_is_left_alone(confirmation_mode, mode):
+    confirmation_mode(mode)
+    context = MiddlewareContext(
+        message=CallToolRequestParams(name="update_case", arguments={}),
+        fastmcp_context=None,
+        method="tools/call",
+        type="request",
+    )
+
+    async def call_next(seen):
+        return "ran"
+
+    assert await WriteConfirmationMiddleware().on_call_tool(context, call_next) == "ran"
+
+
+@pytest.mark.asyncio
+async def test_elicit_mode_logs_when_the_client_cannot_be_asked(confirmation_mode, caplog):
+    confirmation_mode("elicit")
+    context, _ = _call_context("write", supports=False)
+
+    async def call_next(seen):
+        return "ran"
+
+    with caplog.at_level(logging.INFO, logger="pkg.write_confirmation"):
+        assert await WriteConfirmationMiddleware().on_call_tool(context, call_next) == "ran"
+    records = [r for r in caplog.records if r.name == "pkg.write_confirmation"]
+    assert [r.levelno for r in records] == [logging.INFO]
+    assert "update_case" in records[0].getMessage()
+    assert "without a server prompt" in records[0].getMessage()

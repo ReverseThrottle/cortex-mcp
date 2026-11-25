@@ -27,6 +27,7 @@ from pkg.portkey_session import PortkeySessionAdapter
 from pkg.protocol_header import ModernProtocolHeaderMiddleware
 from pkg.response_envelope import ResponseEnvelopeMiddleware
 from pkg.setup_logging import setup_logging
+from pkg.startup_checks import check_tool_controls, check_write_confirmation
 from pkg.tool_classification import catalog_tool_enabled, side_effect_from_route
 from pkg.tool_presentation import annotate_openapi_component
 from pkg.tool_rate_limit import ToolCallRateLimitMiddleware
@@ -144,8 +145,11 @@ async def async_main(transport: str):
             "MCP_AUTH_TOKEN is not set — this server is reachable over the network " "with no client authentication."
         )
 
-    mcp = await initialize_mcp_server(api_key, api_key_id, papi_url, auth_token)
     selected = resolve_transport(transport)
+    check_write_confirmation(config, selected)
+    check_tool_controls(config)
+
+    mcp = await initialize_mcp_server(api_key, api_key_id, papi_url, auth_token)
 
     # Start server with appropriate transport configuration
     if selected == "stdio":
@@ -184,7 +188,7 @@ def openapi_route_map(route, mcp_type):
     del mcp_type
     if getattr(route, "operation_id", None) in BINARY_EXPORT_OPERATION_IDS:
         return MCPType.EXCLUDE
-    if catalog_tool_enabled(side_effect_from_route(route)):
+    if catalog_tool_enabled(side_effect_from_route(route), getattr(route, "operation_id", None)):
         return None
     return MCPType.EXCLUDE
 

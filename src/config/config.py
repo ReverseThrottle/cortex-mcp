@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from pkg.util import REMOTE_DIR
@@ -8,6 +8,12 @@ from pkg.util import REMOTE_DIR
 # Loopback only. "*" would make every Host legal, and strict origin checks
 # still treat an Origin whose host equals that Host as same-origin.
 DEFAULT_MCP_ALLOWED_HOSTS = "127.0.0.1,localhost,::1"
+
+WriteConfirmationMode = Literal["client", "elicit", "require"]
+
+
+def _csv_set(value: str) -> frozenset[str]:
+    return frozenset(part.strip() for part in value.split(",") if part.strip())
 
 
 class Settings(BaseSettings):
@@ -28,7 +34,15 @@ class Settings(BaseSettings):
     mcp_allowed_origins: str = Field("", validation_alias="MCP_ALLOWED_ORIGINS")
     tool_calls_per_second: float = Field(10.0, validation_alias="MCP_TOOL_CALLS_PER_SECOND")
     tool_call_burst: int = Field(20, validation_alias="MCP_TOOL_CALL_BURST")
+    # How the server confirms action, write, and secret tool calls.
+    # client: no server prompt, clients decide from the tool annotations.
+    # elicit: ask through MCP elicitation when the client supports it, else run.
+    # require: refuse when the client cannot be asked.
+    write_confirmation: WriteConfirmationMode | None = Field(None, validation_alias="MCP_WRITE_CONFIRMATION")
+    # Deprecated. True resolves to "require" unless MCP_WRITE_CONFIRMATION is set.
     elicitation_enabled: bool = Field(False, validation_alias="MCP_ELICITATION_ENABLED")
+    tools_allow: str = Field("", validation_alias="MCP_TOOLS_ALLOW")
+    tools_deny: str = Field("", validation_alias="MCP_TOOLS_DENY")
     # Guidance lives on the MCP initialize instructions. Repeating it inside
     # every tool result looks like indirect prompt injection and costs tokens.
     inline_formatting_instructions: bool = Field(False, validation_alias="MCP_INLINE_FORMATTING_INSTRUCTIONS")
@@ -69,6 +83,28 @@ class Settings(BaseSettings):
 
     # --- Update Settings ---
     update_folder: str = Field(REMOTE_DIR.as_posix(), validation_alias="CORTEX_MCP_UPDATE_FOLDER")
+
+    @field_validator("write_confirmation", mode="before")
+    @classmethod
+    def _normalize_write_confirmation(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip().lower()
+        return text or None
+
+    @property
+    def effective_write_confirmation(self) -> WriteConfirmationMode:
+        if self.write_confirmation is not None:
+            return self.write_confirmation
+        return "require" if self.elicitation_enabled else "client"
+
+    @property
+    def tools_allow_set(self) -> frozenset[str]:
+        return _csv_set(self.tools_allow)
+
+    @property
+    def tools_deny_set(self) -> frozenset[str]:
+        return _csv_set(self.tools_deny)
 
 
 # Global config instance

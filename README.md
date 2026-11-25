@@ -15,6 +15,7 @@ A community-built [Model Context Protocol (MCP)](https://modelcontextprotocol.io
   - [Docker (recommended)](#option-1-docker-recommended)
   - [Local / Poetry](#option-2-local--poetry)
 - [Configuration](#configuration)
+- [Safety model](#safety-model)
 - [Connecting to an AI client](#connecting-to-an-ai-client)
   - [Claude Desktop](#claude-desktop)
   - [Cursor / other MCP clients](#cursor--other-mcp-clients)
@@ -164,7 +165,10 @@ All configuration is via environment variables (or a `.env` file in the project 
 | `MCP_WRITE_TOOLS_ENABLED` | `false` | When `true`, register `action` and `write` tools, and allow `secret` tools. Read-only tools are always registered. |
 | `MCP_SECRET_TOOLS_ENABLED` | `false` | When `true` together with `MCP_WRITE_TOOLS_ENABLED`, register tools that return secrets or credential-like artifacts. They stay out of `tools/list` otherwise. |
 | `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED` | `false` | When `true`, register `isolate_endpoint` and `unisolate_endpoint`. |
-| `MCP_ELICITATION_ENABLED` | `false` | When `true`, an action, write, or secret tool asks for confirmation through MCP elicitation before it runs. When `false`, registered tools run without that prompt. Write, secret, and isolate flags still control registration. |
+| `MCP_WRITE_CONFIRMATION` | `client` | How the server confirms action, write, and secret tool calls. `client`: the server does not prompt and clients decide from the tool annotations. `elicit`: ask through MCP elicitation when the client supports it, otherwise run the tool. `require`: refuse the call when the client cannot be asked. Legacy elicitation cannot run on the stateless `streamable-http` transport, so `require` stops startup there and `elicit` logs a warning. |
+| `MCP_ELICITATION_ENABLED` | unset | Deprecated. `true` means `MCP_WRITE_CONFIRMATION=require` and `false` means `client`. `MCP_WRITE_CONFIRMATION` wins when both are set. |
+| `MCP_TOOLS_ALLOW` | empty | Comma-separated `write` or `action` tool names to register even when `MCP_WRITE_TOOLS_ENABLED=false`. It does not lift `MCP_SECRET_TOOLS_ENABLED` or `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED`. Naming a read, secret, isolate, or unknown tool stops startup. |
+| `MCP_TOOLS_DENY` | empty | Comma-separated tool names that are never registered. It wins over every flag and over `MCP_TOOLS_ALLOW`. An unknown name stops startup. |
 | `MCP_INLINE_FORMATTING_INSTRUCTIONS` | `false` | When `true`, each tool result includes `_metadata.formatting_instructions`. When `false`, that guidance is sent once in the MCP `initialize` instructions and is omitted from tool results. |
 
 ### Optional — limits & logging
@@ -206,6 +210,29 @@ These settings stay on the server. They are not tool parameters, and the MCP bea
 | Variable | Default | Description |
 |---|---|---|
 | `CORTEX_MCP_UPDATE_FOLDER` | `src/usecase/remote_components` | Folder the `update` CLI command refreshes with Cortex-managed remote components. `--folder` overrides it for one run. The folder is fully replaced on every update. |
+
+---
+
+## Safety model
+
+Every tool has one class (`read`, `action`, `write`, or `secret`) or none, in which case it fails closed. The class decides which tools register, which annotations clients see, and whether the server can ask for confirmation. These controls are layers. None is a security boundary on its own.
+
+**Upgrading.** The deprecated `MCP_ELICITATION_ENABLED=true` now resolves to `require`, which stops startup on `streamable-http`. A deployment that sets it must change its environment to `MCP_WRITE_CONFIRMATION=client` (or `elicit`) at or before upgrading.
+
+1. **API key role.** The Cortex API key's role is the real limit. Give it the least privilege the deployment needs. The flags and annotations below are best-effort.
+2. **Registration.** `read` tools always register. `action` and `write` tools need `MCP_WRITE_TOOLS_ENABLED=true`. `secret` tools also need `MCP_SECRET_TOOLS_ENABLED=true`. `isolate_endpoint` and `unisolate_endpoint` register on `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED=true` alone, independent of `MCP_WRITE_TOOLS_ENABLED`; `MCP_TOOLS_ALLOW` does not enable them and `MCP_TOOLS_DENY` removes them. A catalog tool with no class needs the write flag and is never lifted by the allow list.
+3. **Per-tool control.** `MCP_TOOLS_ALLOW` registers named `write` or `action` tools without the write flag. It does not lift the secret or isolate flags. `MCP_TOOLS_DENY` removes named tools and wins over every flag and over `MCP_TOOLS_ALLOW`. An unknown name in either list stops startup. `MCP_TOOLS_ALLOW` also stops startup when it names a `read`, `secret`, or isolate tool.
+4. **Annotations.** The server publishes the MCP hints for every tool. All tools also set `openWorldHint: true`.
+
+   | Class | `readOnlyHint` | `destructiveHint` | `idempotentHint` |
+   |---|---|---|---|
+   | `read` | true | false | true |
+   | `write`, `action` | false | true, except operations marked additive in the OpenAPI spec with `x-cortex-mcp-destructive: false`, which add data without overwriting or removing it | false |
+   | `secret` | false | false | false |
+
+   `secret` tools return credential material without changing the tenant. They are not read-only so clients keep prompting. A tool with no class is treated as destructive, and the additive marker is ignored for it. Without the marker an operation is destructive. Hints are not security: MCP clients must treat them as untrusted unless they trust the server.
+5. **Client approval.** The client decides whether a person approves a call. A client that prompts for every tool without `readOnlyHint: true` lets a person approve each write without a server-side prompt. Hermes with `trust: untrusted` on the server entry is an example of a client that can enforce this. That setup has not been tested against this server.
+6. **Optional server confirmation.** `MCP_WRITE_CONFIRMATION` defaults to `client`, which adds no server prompt. `elicit` and `require` use MCP elicitation for every tool that is not `read`, including `secret` and unclassified tools. `elicit` runs the tool when the client cannot be asked. `require` refuses the call. If the client advertises elicitation but the prompt itself fails, the call is refused in both modes (fail-safe). When the request has no usable context or names an unknown tool, the middleware passes the call through in every mode (pre-existing behavior). Elicitation needs a stateful connection. The `streamable-http` handler is stateless, so `require` stops startup there, and `elicit` runs writes without a server prompt on the legacy protocol and logs a warning at startup. `MCP_ELICITATION_ENABLED` is deprecated: unless `MCP_WRITE_CONFIRMATION` is set, `true` resolves to `require` and `false` to `client`. `MCP_WRITE_CONFIRMATION` wins when both are set.
 
 ---
 
@@ -284,7 +311,7 @@ A health-check endpoint is also available at `GET /ping/` (unauthenticated).
 
 The server exposes the public Cortex tenant API (Cortex Cloud, XDR, XSIAM, Xpanse, AgentiX, and XSOAR 8), the on-appliance Broker VM API, and the helpers below. Every catalog operation has an `x-cortex-mcp-side-effect` class: `read`, `action`, `write`, or `secret`. Handwritten tools use the same classes. Annotations, `tools/list`, and write confirmation all use that class. A missing class is not read-only.
 
-`read` tools are always registered. `action` and `write` tools, including the 10 Broker VM appliance tools, are registered only when `MCP_WRITE_TOOLS_ENABLED=true`. `secret` tools (private-key export, the XSOAR credential vault, engine configuration downloads, and signed installer URLs) are registered only when that flag and `MCP_SECRET_TOOLS_ENABLED` are both true. `isolate_endpoint` and `unisolate_endpoint` also require `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED=true`. Each description states the same side effect as its annotation. When `MCP_ELICITATION_ENABLED=true`, action, write, and secret tools ask for confirmation before they run.
+`read` tools are always registered. `action` and `write` tools, including the 10 Broker VM appliance tools, are registered only when `MCP_WRITE_TOOLS_ENABLED=true`. `secret` tools (private-key export, the XSOAR credential vault, engine configuration downloads, and signed installer URLs) are registered only when that flag and `MCP_SECRET_TOOLS_ENABLED` are both true. `isolate_endpoint` and `unisolate_endpoint` are registered only when `MCP_ISOLATE_ENDPOINT_TOOL_ENABLED=true`, regardless of `MCP_WRITE_TOOLS_ENABLED`; `MCP_TOOLS_ALLOW` does not enable them and `MCP_TOOLS_DENY` removes them. Each description states the same side effect as its annotation. See the [Safety model](#safety-model) section for confirmation and per-tool controls.
 
 ### Helpers
 

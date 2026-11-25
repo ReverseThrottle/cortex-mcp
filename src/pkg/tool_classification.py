@@ -4,6 +4,7 @@ Annotations, registration, and write confirmation all use this classification.
 Description text is not a classification. A missing class is not read-only.
 """
 
+from collections.abc import Iterator
 from typing import Any, Literal, assert_never
 
 from config.config import get_config
@@ -12,6 +13,7 @@ from pkg.util import bundle_openapi_from_folders
 SideEffect = Literal["read", "action", "write", "secret"]
 
 SIDE_EFFECT_EXTENSION = "x-cortex-mcp-side-effect"
+ADDITIVE_EXTENSION = "x-cortex-mcp-destructive"
 
 _HTTP_METHODS: frozenset[str] = frozenset({"get", "post", "put", "patch", "delete", "head", "options"})
 
@@ -47,7 +49,13 @@ HANDWRITTEN_SIDE_EFFECTS: dict[str, SideEffect] = {
     "post_register": "write",
 }
 
+# Handwritten write/action tools that only add data. Every other tool that
+# writes is destructive: absence is the safe direction. Members must be
+# handwritten write or action tools (tests/test_tool_annotations.py).
+HANDWRITTEN_ADDITIVE: frozenset[str] = frozenset()
+
 _catalog_cache: dict[str, SideEffect] | None = None
+_catalog_additive_cache: frozenset[str] | None = None
 
 
 def parse_side_effect(value: object) -> SideEffect | None:
@@ -161,22 +169,41 @@ def align_description(
     return f"{sentence}\n\n{stripped}"
 
 
-def catalog_tool_enabled(kind: SideEffect | None) -> bool:
+def catalog_tool_enabled(kind: SideEffect | None, name: str | None = None) -> bool:
     """Read tools are always registered. Other classes follow the feature flags.
 
-    Secret tools need both write tools and secret tools. Action, write, and
-    unclassified tools need write tools. Unclassified tools are not reads.
+    ``MCP_TOOLS_DENY`` removes a named tool whatever its class. ``MCP_TOOLS_ALLOW``
+    registers a named write or action tool without ``MCP_WRITE_TOOLS_ENABLED``.
+    It never lifts the secret or isolate flags. Secret tools need both write
+    tools and secret tools. Unclassified tools need write tools and are never
+    lifted by the allow list, because an unclassified tool is not known to be safe.
     """
     config = get_config()
+    if name is not None and name in config.tools_deny_set:
+        return False
     match kind:
         case "read":
             return True
         case "secret":
             return config.write_tools_enabled and config.secret_tools_enabled
-        case "action" | "write" | None:
+        case "action" | "write":
+            return config.write_tools_enabled or (name is not None and name in config.tools_allow_set)
+        case None:
             return config.write_tools_enabled
         case _:
             assert_never(kind)
+
+
+def tool_denied(name: str) -> bool:
+    return name in get_config().tools_deny_set
+
+
+def write_tool_enabled(name: str) -> bool:
+    """Handwritten write or action tool: the write flag or the allow list, and not denied."""
+    config = get_config()
+    if name in config.tools_deny_set:
+        return False
+    return config.write_tools_enabled or name in config.tools_allow_set
 
 
 def requires_confirmation(kind: SideEffect | None) -> bool:
@@ -184,23 +211,64 @@ def requires_confirmation(kind: SideEffect | None) -> bool:
     return kind != "read"
 
 
+def _iter_catalog_operations() -> Iterator[tuple[str, dict[str, Any]]]:
+    spec = bundle_openapi_from_folders()
+    for methods in spec.get("paths", {}).values():
+        if not isinstance(methods, dict):
+            continue
+        for method, operation in methods.items():
+            if method.lower() not in _HTTP_METHODS or not isinstance(operation, dict):
+                continue
+            operation_id = operation.get("operationId")
+            if isinstance(operation_id, str):
+                yield operation_id, operation
+
+
+def catalog_operation_ids() -> frozenset[str]:
+    """Every catalog operationId, classified or not. Not cached: startup calls it once."""
+    return frozenset(operation_id for operation_id, _ in _iter_catalog_operations())
+
+
 def _catalog_classifications() -> dict[str, SideEffect]:
     global _catalog_cache
     if _catalog_cache is None:
-        spec = bundle_openapi_from_folders()
         found: dict[str, SideEffect] = {}
-        for methods in spec.get("paths", {}).values():
-            if not isinstance(methods, dict):
-                continue
-            for method, operation in methods.items():
-                if method.lower() not in _HTTP_METHODS or not isinstance(operation, dict):
-                    continue
-                operation_id = operation.get("operationId")
-                kind = parse_side_effect(operation.get(SIDE_EFFECT_EXTENSION))
-                if isinstance(operation_id, str) and kind is not None:
-                    found[operation_id] = kind
+        for operation_id, operation in _iter_catalog_operations():
+            kind = parse_side_effect(operation.get(SIDE_EFFECT_EXTENSION))
+            if kind is not None:
+                found[operation_id] = kind
         _catalog_cache = found
     return _catalog_cache
+
+
+def catalog_classifications() -> dict[str, SideEffect]:
+    """Return a copy of the catalog operation-id to side-effect map."""
+    return dict(_catalog_classifications())
+
+
+def _catalog_additive() -> frozenset[str]:
+    global _catalog_additive_cache
+    if _catalog_additive_cache is None:
+        classes = _catalog_classifications()
+        _catalog_additive_cache = frozenset(
+            operation_id
+            for operation_id, operation in _iter_catalog_operations()
+            if operation.get(ADDITIVE_EXTENSION) is False and classes.get(operation_id) in ("write", "action")
+        )
+    return _catalog_additive_cache
+
+
+def additive_from_route(route: Any) -> bool:
+    """True only for a write or action operation explicitly marked additive."""
+    if side_effect_from_route(route) not in ("write", "action"):
+        return False
+    extensions = getattr(route, "extensions", None)
+    if isinstance(extensions, dict) and ADDITIVE_EXTENSION in extensions:
+        return extensions[ADDITIVE_EXTENSION] is False
+    operation_id = getattr(route, "operation_id", None)
+    if isinstance(operation_id, str) and operation_id:
+        return operation_id in _catalog_additive()
+    return False
 
 
 def side_effect_from_route(route: Any) -> SideEffect | None:

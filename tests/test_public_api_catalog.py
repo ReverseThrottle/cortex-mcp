@@ -20,7 +20,12 @@ from main import initialize_mcp_server, openapi_route_map
 from pkg.call_deadline import ToolCallDeadlineMiddleware
 from pkg.client import PAPIClient
 from pkg.setup_logging import configure_library_logging
-from pkg.tool_classification import SIDE_EFFECT_EXTENSION
+from pkg.tool_classification import (
+    ADDITIVE_EXTENSION,
+    HANDWRITTEN_ADDITIVE,
+    SIDE_EFFECT_EXTENSION,
+    catalog_classifications,
+)
 from pkg.tool_presentation import (
     annotate_openapi_component,
     annotations_for_side_effect,
@@ -597,10 +602,28 @@ async def test_initialize_mcp_server_wires_the_catalog_guards(feature_flags, mon
     assert "get_assets" in names
 
 
+def _additive_tool_names() -> frozenset[str]:
+    """Operations the OpenAPI spec marks additive, plus handwritten additive tools."""
+    names = set(HANDWRITTEN_ADDITIVE)
+    for methods in bundle_openapi_from_folders().get("paths", {}).values():
+        for operation in methods.values():
+            if isinstance(operation, dict) and operation.get(ADDITIVE_EXTENSION) is False:
+                names.add(operation["operationId"])
+    return frozenset(names)
+
+
+_ADDITIVE_CATALOG_TOOLS = _additive_tool_names()
+
+
 def _assert_not_read_only(tool) -> None:
     assert tool.annotations is not None
     assert tool.annotations.read_only_hint is False
-    assert tool.annotations.destructive_hint is True
+    # Secret tools return material without changing the tenant (spec: secret is
+    # not destructive); every other non-read tool here is destructive.
+    if catalog_classifications().get(tool.name) == "secret":
+        assert tool.annotations.destructive_hint is False
+    else:
+        assert tool.annotations.destructive_hint is (tool.name not in _ADDITIVE_CATALOG_TOOLS)
     assert tool.annotations.idempotent_hint is False
     assert "Side effects: none" not in (tool.description or "")
     assert changes_tenant_state(tool)
@@ -667,6 +690,7 @@ async def test_consumption_and_file_retrieval_details_are_read_only(feature_flag
 @pytest.mark.asyncio
 async def test_file_retrieval_middleware_asks_before_running(feature_flags, bundled_spec, monkeypatch):
     feature_flags(write=True, isolate=False, secret=False)
+    monkeypatch.delenv("MCP_WRITE_CONFIRMATION", raising=False)
     monkeypatch.setenv("MCP_ELICITATION_ENABLED", "true")
     reload_config()
     try:

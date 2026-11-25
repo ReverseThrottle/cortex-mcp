@@ -7,10 +7,12 @@ from fastmcp.resources import Resource
 from fastmcp.tools import Tool
 
 from pkg.tool_classification import (
+    HANDWRITTEN_ADDITIVE,
     SideEffect,
     align_description,
     handwritten_side_effect,
     remember_side_effect,
+    tool_denied,
 )
 from pkg.tool_presentation import (
     LOOSE_OBJECT_OUTPUT_SCHEMA,
@@ -99,13 +101,16 @@ class BaseModule(ABC):
                 f"Handwritten tool {fn.__name__!r} has no SideEffect. "
                 "Pass side_effect= or add it to HANDWRITTEN_SIDE_EFFECTS."
             )
+        if tool_denied(fn.__name__):
+            logger.info("Tool %s is denied by MCP_TOOLS_DENY", fn.__name__)
+            return
         description_text = align_description(description if description is not None else (fn.__doc__ or ""), kind)
         title = display_title(description=description_text)
         tool = Tool.from_function(
             return_structured_object(fn),
             description=description_text,
             title=title,
-            annotations=annotations_for_side_effect(kind),
+            annotations=annotations_for_side_effect(kind, additive=fn.__name__ in HANDWRITTEN_ADDITIVE),
             output_schema=dict(LOOSE_OBJECT_OUTPUT_SCHEMA),
         )
         remember_side_effect(tool, kind)
