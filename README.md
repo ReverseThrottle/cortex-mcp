@@ -29,6 +29,7 @@ A community-built [Model Context Protocol (MCP)](https://modelcontextprotocol.io
   - [Contributing](#contributing)
 - [Project structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
+- [Security](#security)
 
 ---
 
@@ -1046,3 +1047,11 @@ cortex-mcp/
 **XQL query times out** — The server polls up to 30 seconds (15 × 2 s). For long-running queries, reduce scope with tighter filters or a shorter timeframe.
 
 **Debugging** — Set `LOG_LEVEL=DEBUG` for verbose output, or connect with the MCP Inspector for interactive tool testing.
+
+---
+
+## Security
+
+This server handles Cortex PAPI credentials. Please report vulnerabilities
+privately rather than in a public issue — see [SECURITY.md](SECURITY.md)
+for the disclosure process and response-time expectations.
